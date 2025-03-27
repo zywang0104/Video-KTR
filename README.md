@@ -132,7 +132,7 @@ For efficiency considerations, we limit the maximum number of video frames to 16
 
 ## 🔮 Evaluation
 
-During inference, we increase the frame resolution to 256 × 28 × 28 and frames to 16$\sim$32 to enhance performance. 
+During inference, we increase the frame resolution to 256 × 28 × 28 and frames to 16~32 to enhance performance. 
 
 For all evaluations, we follow the decoding configuration used in the official Qwen2.5-VL demo, with top\_p = 0.001 and temperature = 0.01. Setting large top_p may encounter messy output when inference.
 
