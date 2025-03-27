@@ -60,7 +60,7 @@ The accuracy reward exhibits a generally upward trend, indicating that the model
 
 Interestingly, the response length curve first drops at the beginning of RL training, then gradually increases. We guess this is because the model initially discards its previous, potentially sub-optimal reasoning style. Then gradually converges to a better and stable reasoning policy.
 
-<img src="C:\Users\10429\Desktop\Video-R1-main\images\curves.png" style="zoom:80%;" />
+<img src="./images/curves.png" style="zoom:80%;" />
 
 
 
