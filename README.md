@@ -1,6 +1,6 @@
 # Video-R1: Reinforcing Video Reasoning in MLLMs
 
-[[📖 Paper]()] [[🤗 Video-R1-7B-model](https://huggingface.co/Video-R1/Video-R1-7B)] [[🤗 Video-R1-train-data](https://huggingface.co/datasets/Video-R1/Video-R1-data)] 
+[[📖 Paper](https://github.com/tulerfeng/Video-R1/blob/main/Video-R1%20paper.pdf)] [[🤗 Video-R1-7B-model](https://huggingface.co/Video-R1/Video-R1-7B)] [[🤗 Video-R1-train-data](https://huggingface.co/datasets/Video-R1/Video-R1-data)] 
 
 
 
