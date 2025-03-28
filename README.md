@@ -1,6 +1,7 @@
-# Video-R1: Reinforcing Video Reasoning in MLLMs
+![image](https://github.com/user-attachments/assets/f2ef94c0-4306-44ad-9c3a-33f60bb51c4f)# Video-R1: Reinforcing Video Reasoning in MLLMs
 
 [[📖 Paper](https://arxiv.org/pdf/2503.21776)] [[🤗 Video-R1-7B-model](https://huggingface.co/Video-R1/Video-R1-7B)] [[🤗 Video-R1-train-data](https://huggingface.co/datasets/Video-R1/Video-R1-data)] 
+[[🤖 Video-R1-7B-model](https://modelscope.cn/models/Video-R1/Video-R1-7B)]  [[🤖 Video-R1-train-data](https://modelscope.cn/datasets/Video-R1/Video-R1-data)]
 
 
 
@@ -17,7 +18,7 @@ Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs, or 5 A100 (80G) G
 
 
 ## 🔥 News
-- [2025/03/28] We release our paper, codes, model weights, and two curated training datasets.
+- [2025/03/28] We release our paper, codes, model weights, and two curated training datasets in huggingface🤗 and modelscope🤖.
 - [2025/02/23] We release the preliminary version of Video-R1, you can refer to `./previous_version` for this version.
 
 ## 📍 Features
