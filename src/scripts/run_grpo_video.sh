@@ -4,6 +4,7 @@ export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model 
 export LOG_PATH="./debug_log_2b.txt"
 
 # For resume training:  --resume_from_checkpoint Model_Path \
+# Set temporal to choose between T-GRPO and GRPO, and len_control to enable or disable the length control reward.
 
 # Qwen/Qwen2.5-VL-7B-Instruct
 
