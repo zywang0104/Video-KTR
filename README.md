@@ -162,7 +162,7 @@ If you find our work helpful for your research, please consider citing our work.
 @article{feng2025videor1,
   title={Video-R1: Reinforcing Video Reasoning in MLLMs},
   author={Feng, Kaituo and Gong, Kaixiong and Li, Bohao and Guo, Zonghao and Wang, Yibing and Peng, Tianshuo and Wang, Benyou and Yue, Xiangyu},
-  journal={arXiv},
+  journal={arXiv preprint arXiv:2503.21776},
   year={2025}
 }
 ```
