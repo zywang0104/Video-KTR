@@ -16,7 +16,7 @@ fi
 RUN_NAME="Qwen2.5-VL-7B-Video-GRPO"
 DS_CONFIG="local_scripts/zero3.json"  
 
-
+# Set temporal to choose between T-GRPO and GRPO, and len_control to enable or disable the length control reward.
 # NOTE: you are expected to use X + 1 cards for X training proc and 1 vLLM proc 
 # e.g., the visible devices should be 0,1,2,3,4 for 5 cards, and  --nproc_per_node="4"
 
