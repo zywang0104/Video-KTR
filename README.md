@@ -108,7 +108,7 @@ For vLLM library, please use 0.7.2 version.
 
 ## 🚀 Training
 
-We first perform supervised fine-tuning on the Video-R1-COT-165k dataset for one epoch to obtain the Qwen2.5-VL-7B-SFT model. 
+We first perform supervised fine-tuning on the Video-R1-COT-165k dataset for one epoch to obtain the Qwen2.5-VL-7B-SFT model. If you want to perform CoT annotation on your own data, please refer to `src/generate_cot_vllm.py`
 
 ```bash
 bash ./src/scripts/run_sft_video.sh
