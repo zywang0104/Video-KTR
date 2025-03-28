@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/f2ef94c0-4306-44ad-9c3a-33f60bb51c4f)# Video-R1: Reinforcing Video Reasoning in MLLMs
+# Video-R1: Reinforcing Video Reasoning in MLLMs
 
 [[📖 Paper](https://arxiv.org/pdf/2503.21776)] [[🤗 Video-R1-7B-model](https://huggingface.co/Video-R1/Video-R1-7B)] [[🤗 Video-R1-train-data](https://huggingface.co/datasets/Video-R1/Video-R1-data)] 
 [[🤖 Video-R1-7B-model](https://modelscope.cn/models/Video-R1/Video-R1-7B)]  [[🤖 Video-R1-train-data](https://modelscope.cn/datasets/Video-R1/Video-R1-data)]
