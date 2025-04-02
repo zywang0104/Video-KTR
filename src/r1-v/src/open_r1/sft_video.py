@@ -249,7 +249,7 @@ if __name__ == "__main__":
         train_dataset=prepared_dataset,
         data_collator=collate_fn,
         peft_config=get_peft_config(model_config),
-        tokenizer=processor.tokenizer
+        # tokenizer=processor.tokenizer
     )
 
     # Train model
