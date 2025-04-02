@@ -116,7 +116,7 @@ We first perform supervised fine-tuning on the Video-R1-COT-165k dataset for one
 ```bash
 bash ./src/scripts/run_sft_video.sh
 ```
-If you want to skip the SFT process, we also provide one of our SFT models at [Qwen2.5-VL-SFT](https://huggingface.co/Video-R1/Qwen2.5-VL-7B-COT-SFT). 
+If you want to skip the SFT process, we also provide one of our SFT models at [🤗Qwen2.5-VL-SFT](https://huggingface.co/Video-R1/Qwen2.5-VL-7B-COT-SFT). 
 
 This is followed by RL training on the Video-R1-260k dataset to produce the final Video-R1 model. Due to current computational resource limitations, we train the model for only 1k RL steps.  
 
