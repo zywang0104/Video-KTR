@@ -133,6 +133,8 @@ bash ./src/scripts/run_grpo_vllm_qwen25vl.sh
 
 For efficiency considerations, we limit the maximum number of video frames to 16 during training. Each frame is processed at a max resolution of 128 × 28 × 28.  You can set this in `src/qwen-vl-utils`
 
+Please keep per_device_train_batch_size=1 as in previous work r1-v
+
 ## 🔮 Inference & Evaluation
 
 During inference, we increase the max frame resolution to 256 × 28 × 28 and max frames to 16/32 to enhance performance. You can easily set this in `src/qwen-vl-utils`
