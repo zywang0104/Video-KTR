@@ -107,6 +107,8 @@ pip install .
 
 For vLLM library, please use 0.7.2 version.
 
+For trl library, please use 0.16.0 version.
+
 ## 🚀 Training
 
 We first perform supervised fine-tuning on the Video-R1-COT-165k dataset for one epoch to obtain the Qwen2.5-VL-7B-SFT model. If you want to perform CoT annotation on your own data, please refer to `src/generate_cot_vllm.py`
@@ -129,11 +131,11 @@ You can also use the following script to enable vLLM acceleration for RL trainin
 bash ./src/scripts/run_grpo_vllm_qwen25vl.sh
 ```
 
-For efficiency considerations, we limit the maximum number of video frames to 16 during training. Each frame is processed at a resolution of 128 × 28 × 28.  You can set this in `src/qwen-vl-utils`
+For efficiency considerations, we limit the maximum number of video frames to 16 during training. Each frame is processed at a max resolution of 128 × 28 × 28.  You can set this in `src/qwen-vl-utils`
 
 ## 🔮 Inference & Evaluation
 
-During inference, we increase the frame resolution to 256 × 28 × 28 and frames to 16~32 to enhance performance. You can easily set this in `src/qwen-vl-utils`
+During inference, we increase the max frame resolution to 256 × 28 × 28 and max frames to 16/32 to enhance performance. You can easily set this in `src/qwen-vl-utils`
 
 For all evaluations, we follow the decoding configuration used in the official Qwen2.5-VL demo, with top\_p = 0.001 and temperature = 0.01. Setting large top_p may encounter messy output when inference.
 
