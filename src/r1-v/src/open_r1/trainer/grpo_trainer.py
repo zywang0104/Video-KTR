@@ -440,6 +440,12 @@ class Qwen2VLGRPOTrainer(Trainer):
         
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
 
+
+        # fix prompt_inputs["input_ids"] length issue
+        if self.max_prompt_length is not None:
+            prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length :]
+            prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length :]
+
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
         
