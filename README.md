@@ -13,7 +13,7 @@ We introduce T-GRPO, an extension of GRPO that incorporates temporal modeling to
 
 Our Video-R1-7B obtain strong performance on several video reasoning benchmarks. For example, Video-R1-7B attains a 35.8% accuracy on video spatial reasoning benchmark VSI-bench, **surpassing the commercial proprietary model GPT-4o**.
 
-Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs or 5 A100 (80G) GPUs, within only **10 hours** of RL training after SFT.
+Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs, or 5 A100 (80G) GPUs.
 
 
 
