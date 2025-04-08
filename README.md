@@ -13,7 +13,7 @@ We introduce T-GRPO, an extension of GRPO that incorporates temporal modeling to
 
 Our Video-R1-7B obtain strong performance on several video reasoning benchmarks. For example, Video-R1-7B attains a 35.8% accuracy on video spatial reasoning benchmark VSI-bench, **surpassing the commercial proprietary model GPT-4o**.
 
-Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs, or 5 A100 (80G) GPUs.
+Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs or 5 A100 (80G) GPUs, within only **10 hours** of RL training after SFT.
 
 
 
@@ -118,7 +118,7 @@ bash ./src/scripts/run_sft_video.sh
 ```
 If you want to skip the SFT process, we also provide one of our SFT models at [🤗Qwen2.5-VL-SFT](https://huggingface.co/Video-R1/Qwen2.5-VL-7B-COT-SFT). 
 
-This is followed by RL training on the Video-R1-260k dataset to produce the final Video-R1 model. Due to current computational resource limitations, we train the model for only 1k RL steps.  
+This is followed by RL training on the Video-R1-260k dataset to produce the final Video-R1 model. Due to current computational resource limitations, we train the model for only 1.2k RL steps.  
 
 The script for training the obtained Qwen2.5-VL-7B-SFT model with T-GRPO or GRPO is as follows
 
