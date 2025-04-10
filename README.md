@@ -45,6 +45,14 @@ Video-R1 significantly outperforms previous models across most benchmarks. Notab
 
 This highlights the necessity of explicit reasoning capability in solving video tasks, and confirms the effectiveness of reinforcement learning for video tasks.
 
+
+<div align="center">
+  <img src="./images/frames.png" alt="Descriptive alt text" width="75%">
+</div>
+
+Besides, although the model is trained using only 16 frames, we find that evaluating on more frames generally leads to better performance, particularly on benchmarks with longer videos. These results highlight the importance of enabling models to reason over more frames.
+
+
 ## 🧠 Aha Moment in Video Reasoning
 
 One of the most intriguing outcomes of reinforcement learning in Video-R1 is the emergence of self-reflection reasoning behaviors, commonly referred to as “aha moments”. Some examples are as follows.
@@ -52,6 +60,7 @@ One of the most intriguing outcomes of reinforcement learning in Video-R1 is the
 <img src="./images/demo1.png" style="zoom:80%;" />
 
 <img src="./images/demo2.png" style="zoom:80%;" />
+
 
 ## 📈 RL Training Curves
 
