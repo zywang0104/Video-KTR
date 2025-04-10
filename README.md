@@ -147,7 +147,7 @@ Please keep per_device_train_batch_size=1 as in previous work r1-v
 
 ## 🔮 Inference & Evaluation
 
-During inference, we increase the max frame resolution to 256 × 28 × 28 and max frames to 16/32 to enhance performance. You can easily set this in `src/qwen-vl-utils`
+During inference, we increase the max frame resolution to 256 × 28 × 28 and max frames to 16/32/64 to enhance performance. You can easily set this in `src/qwen-vl-utils`
 
 For all evaluations, we follow the decoding configuration used in the official Qwen2.5-VL demo, with top\_p = 0.001 and temperature = 0.01. Setting large top_p may encounter messy output when inference.
 
