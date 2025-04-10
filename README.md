@@ -47,7 +47,7 @@ This highlights the necessity of explicit reasoning capability in solving video 
 
 
 <div align="center">
-  <img src="./images/frames.png" alt="Descriptive alt text" width="80%">
+  <img src="./images/frames.png" alt="Descriptive alt text" width="85%">
 </div>
 
 Besides, although the model is trained using only 16 frames, we find that evaluating on more frames (e.g., 64) generally leads to better performance, particularly on benchmarks with longer videos. These results indicate the importance of training models to reason over more frames.
