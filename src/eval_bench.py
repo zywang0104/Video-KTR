@@ -94,7 +94,7 @@ for dataset_name in ['mvbench','tempcompass','videomme','videommmu','vsibench','
             "content": [
                 {
                     "type": x['data_type'],
-                    x['data_type']: os.getcwd() + "/src/r1-v" + x['path'][1:]
+                    x['data_type']: os.getcwd() + "/src/r1-v/Evaluation" + x['path'][1:]
                 },
                 {
                     "type": "text",
