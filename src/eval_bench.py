@@ -229,6 +229,7 @@ for dataset_name in ['mvbench','tempcompass','videomme','videommmu','vsibench','
             
         except Exception as e:
             print('error:', data[i]['path'])
+            print('Exception:', e)
             batch_output_text = ['<answer>error</answer>'] * BSZ
             
 
