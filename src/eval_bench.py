@@ -28,7 +28,7 @@ file_name = args.file_name
 llm = LLM(
     model=MODEL_PATH,
     tensor_parallel_size=torch.cuda.device_count(),
-    max_model_len = 8192,
+    max_model_len = 8192 * 2,
     gpu_memory_utilization=0.8,
     limit_mm_per_prompt={"image": 1, "video": 1},
 )
