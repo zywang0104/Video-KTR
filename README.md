@@ -162,8 +162,11 @@ Finally, conduct evaluation on all benchmarks using the following scripts
 ```bash
 bash ./src/eval_bench.sh
 ```
+For infernce on a single example, you may use:
 
-
+```bash
+python ./src/inference_example.py
+```
 
 ## Acknowledgements
 
