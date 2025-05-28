@@ -18,7 +18,7 @@ Video-R1-7B **can be easily trained** using 4 H20 (96GB) GPUs, or 5 A100 (80G) G
 
 
 ## 🔥 News
-- [2025/05/28] our Video-R1-7B achieves **36.5%** accuracy on the new challenging video reasoning bench [**Video-Holmes**](https://video-holmes.github.io/Page.github.io/), beating the commercial model **o4-mini (29.9%)** and **Gemini-2.0-Flash (30.6%)**.
+- [2025/05/28] our Video-R1-7B achieves **36.5%** accuracy on the new video reasoning benchmark [**Video-Holmes**](https://video-holmes.github.io/Page.github.io/), beating the commercial model **o4-mini (29.9%)** and **Gemini-2.0-Flash (30.6%)**.
 - [2025/03/28] We release our paper, codes, model weights, and two curated training datasets in huggingface🤗 and modelscope🤖.
 - [2025/02/23] We release the preliminary version of Video-R1, you can refer to `./previous_version` for this version.
 
