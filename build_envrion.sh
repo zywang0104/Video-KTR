@@ -26,6 +26,6 @@ pip3 show transformers
 python3 -c "import transformers; print(transformers.__version__, transformers.__file__)"
 pip3 show trl
 
-python3 download.py
+# python3 download.py
 
 # bash /mnt/bn/tns-live-mllm/private/wangzy/Video-R1/src/scripts/run_grpo_video.sh
