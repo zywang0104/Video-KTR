@@ -36,8 +36,7 @@ from transformers import (
     Qwen2VLForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
     Trainer,
-    TrainerCallback,
-    is_wandb_available,
+    TrainerCallback
 )
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from transformers.utils import is_peft_available
@@ -55,8 +54,6 @@ import copy
 if is_peft_available():
     from peft import PeftConfig, get_peft_model
 
-if is_wandb_available():
-    import wandb
     
 
 # What we call a reward function is a callable that takes a list of prompts and completions and returns a list of
@@ -174,8 +171,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(local_rank)
         device = torch.device(f"cuda:{local_rank}")
-        for i in range(100):
-            print(device)
+        wandb.init(project="video-R1-Live", name='test')
         # Models
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}

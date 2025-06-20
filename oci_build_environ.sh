@@ -1,0 +1,31 @@
+#!/bin/bash
+
+printf "\n" | sudo pip3 uninstall vllm
+printf "\n" | pip3 uninstall vllm
+bash setup.sh
+
+cd src/qwen-vl-utils
+pip install -e .[decord]
+cd ../..
+
+pip3 install vllm==0.7.2
+printf "\n" | sudo pip3 uninstall transformers
+printf "\n" | pip3 uninstall transformers
+
+
+hdfs dfs -get hdfs://harunava/user/ziyue.wang/transformers-main_.zip
+unzip transformers-main_.zip
+cd transformers-main
+python3 -m pip install .
+cd ../
+
+pip3 uninstall wandb
+pip install -U byted-wandb -i https://bytedpypi.byted.org/simple
+hdfs dfs -get hdfs://harunava/user/ziyue.wang/Qwen2.5-VL-7B-COT-SFT
+
+pip3 show transformers
+python3 -c "import transformers; print(transformers.__version__, transformers.__file__)"
+
+# python3 download.py
+
+# bash /mnt/bn/tns-live-mllm/private/wangzy/Video-R1/src/scripts/run_grpo_video.sh

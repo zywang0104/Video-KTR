@@ -16,8 +16,8 @@ torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
     --master_addr="$ARNOLD_WORKER_0_HOST" \
     --master_port="$PORT" \
     src/open_r1/grpo.py \
-    --output_dir "/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/base_baseline_0619" \
-    --model_name_or_path 'Video-R1/Qwen2.5-VL-7B-COT-SFT' \
+    --output_dir "baseline_original_rft" \
+    --model_name_or_path 'Qwen2.5-VL-7B-COT-SFT' \
     --dataset_name "./Video-R1-data/Video-R1-260k.json" \
     --deepspeed local_scripts/zero3.json \
     --max_prompt_length 16384 \
