@@ -7,7 +7,7 @@ export DEBUG_MODE="true"
 export LOG_PATH="./vllm_run.txt"
 
 
-QWEN_PATH='SFT Model Path'
+QWEN_PATH='Video-R1/Qwen2.5-VL-7B-COT-SFT'
 HF_DATASET="./Video-R1-data/Video-R1-260k.json"
 OUTPUT_DIR="./log/Qwen2.5-VL-7B-Video-GRPO"
 if [ ! -d "$OUTPUT_DIR" ]; then
@@ -20,7 +20,7 @@ DS_CONFIG="local_scripts/zero3.json"
 # NOTE: you are expected to use X + 1 cards for X training proc and 1 vLLM proc 
 # e.g., the visible devices should be 0,1,2,3,4 for 5 cards, and  --nproc_per_node="4"
 
-CUDA_VISIBLE_DEVICES="0,1,2,3,4" torchrun \
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun \
     --nproc_per_node="4" \
     --nnodes="1" \
     --node_rank="0" \

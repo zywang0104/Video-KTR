@@ -16,7 +16,7 @@ torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
     --master_addr="$ARNOLD_WORKER_0_HOST" \
     --master_port="$PORT" \
     src/open_r1/grpo.py \
-    --output_dir "/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/baseline28_0619" \
+    --output_dir "/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/base_baseline_0619" \
     --model_name_or_path 'Video-R1/Qwen2.5-VL-7B-COT-SFT' \
     --dataset_name "./Video-R1-data/Video-R1-260k.json" \
     --deepspeed local_scripts/zero3.json \
@@ -35,7 +35,7 @@ torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
     --attn_implementation flash_attention_2 \
     --max_pixels 401408 \
     --num_train_epochs 1 \
-    --run_name Video-R1-28-Baseline \
+    --run_name Video-R1-Baseline \
     --save_steps 100 \
     --beta 0.04 \
     --max_grad_norm 5 \

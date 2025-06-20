@@ -170,12 +170,18 @@ class Qwen2VLGRPOTrainer(Trainer):
             model_name = model if isinstance(model, str) else model.config._name_or_path
             model_name = model_name.split("/")[-1]
             args = GRPOConfig(f"{model_name}-GRPO")
-            
-
+        
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
+        for i in range(100):
+            print(device)
         # Models
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
         model_init_kwargs["attn_implementation"] = attn_implementation
+        model_init_kwargs["torch_dtype"] = torch.bfloat16
+
         if isinstance(model, str):
             model_id = model
             torch_dtype = model_init_kwargs.get("torch_dtype")
@@ -203,6 +209,7 @@ class Qwen2VLGRPOTrainer(Trainer):
             else:
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model, **model_init_kwargs)
                 # model = Qwen2VLForConditionalGeneration.from_pretrained(model, **model_init_kwargs)
+            model = model.to(device)
         else:
             model_id = model.config._name_or_path
             if args.model_init_kwargs is not None:
@@ -210,7 +217,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                     "You passed `model_init_kwargs` to the `GRPOConfig`, but your model is already instantiated. "
                     "This argument can only be used when the `model` argument is a string."
                 )
-
         if peft_config is not None:
             model = get_peft_model(model, peft_config)
 
@@ -373,11 +379,14 @@ class Qwen2VLGRPOTrainer(Trainer):
         input_ids = input_ids[:, 1:]  # (B, L-1), exclude the first input ID since we don't have logits for it
         # Compute the log probabilities for the input tokens. Use a loop to reduce memory peak.
         per_token_logps = []
+        token_entropies = []
         for logits_row, input_ids_row in zip(logits, input_ids):
             log_probs = logits_row.log_softmax(dim=-1)
             token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
             per_token_logps.append(token_log_prob)
-        return torch.stack(per_token_logps)
+            entropy_row = -(log_probs * log_probs.exp()).sum(dim=-1)  # (L,)
+            token_entropies.append(entropy_row)
+        return torch.stack(per_token_logps), torch.stack(token_entropies)
     
     def remove_none_from_data(self, data):
         for entry in data:
@@ -537,26 +546,41 @@ class Qwen2VLGRPOTrainer(Trainer):
         
         
         try:
-            per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
+            per_token_logps, token_entropies = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
             per_token_logps = per_token_logps[:, prompt_length - 1 :]
+            token_entropies = token_entropies[:, prompt_length - 1 :]
         except Exception as e:
             print(f"Error computing per_token_logps: {e}. Setting output to zero.")
             # per_token_logps = torch.tensor(0.0, device=prompt_completion_ids.device, requires_grad=True)
-            per_token_logps = self._get_per_token_logps(model, prompt_completion_ids)
+            per_token_logps, token_entropies = self._get_per_token_logps(model, prompt_completion_ids)
         
+        # 28 entropy
+        # top_entropy_mask = torch.zeros_like(token_entropies)
+        # for i in range(token_entropies.size(0)):
+        #     valid_len = completion_mask[i].sum()
+        #     if valid_len == 0:
+        #         continue
+        #     k = max(1, int(valid_len.item() * 0.2))
+        #     entropy_i = token_entropies[i] * completion_mask[i]
+        #     top_indices = torch.topk(entropy_i, k=k).indices
+        #     top_entropy_mask[i, top_indices] = 1.0
+
+        # completion_mask = top_entropy_mask
+
+
         with torch.inference_mode():
             try:
                 if self.ref_model is not None:
-                    ref_per_token_logps = self._get_per_token_logps(self.ref_model, prompt_completion_ids, **prompt_inputs)
+                    ref_per_token_logps,_ = self._get_per_token_logps(self.ref_model, prompt_completion_ids, **prompt_inputs)
                 else:
                     with self.accelerator.unwrap_model(model).disable_adapter():
-                        ref_per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
+                        ref_per_token_logps,_ = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
                 ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1 :]
             except Exception as e:
                 print(f"Error computing ref_per_token_logps: {e}. Setting output to zero.")
                 # ref_per_token_logps = torch.tensor(0.0, device=prompt_completion_ids.device)
                 with self.accelerator.unwrap_model(model).disable_adapter():
-                    ref_per_token_logps = self._get_per_token_logps(model, prompt_completion_ids)
+                    ref_per_token_logps,_ = self._get_per_token_logps(model, prompt_completion_ids)
                 ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1 :]
 
         # Compute the KL divergence between the model and the reference model
