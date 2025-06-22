@@ -16,7 +16,7 @@ torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
     --master_addr="$ARNOLD_WORKER_0_HOST" \
     --master_port="$PORT" \
     src/open_r1/grpo.py \
-    --output_dir "baseline_original_rft" \
+    --output_dir "/opt/tiger/video-R1-Live/Qwen2.5-VL-7B-COT-SFT/baseline_original_rft_0622" \
     --model_name_or_path '/opt/tiger/video-R1-Live/Qwen2.5-VL-7B-COT-SFT' \
     --dataset_name "./Video-R1-data/Video-R1-260k.json" \
     --deepspeed local_scripts/zero3.json \
