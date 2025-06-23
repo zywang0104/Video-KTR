@@ -171,7 +171,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(local_rank)
         device = torch.device(f"cuda:{local_rank}")
-        wandb.init(project="video-R1-Live", name='test')
+        # wandb.init(project="video-R1-Live", name='test')
         # Models
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
