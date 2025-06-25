@@ -19,8 +19,7 @@ cd transformers-main
 python3 -m pip install .
 cd ../
 
-pip3 uninstall wandb
-pip install -U byted-wandb -i https://bytedpypi.byted.org/simple
+printf "\n" | pip3 uninstall wandb
 hdfs dfs -get hdfs://harunava/user/ziyue.wang/Qwen2.5-VL-7B-COT-SFT
 
 pip3 show transformers

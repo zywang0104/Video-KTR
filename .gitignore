@@ -1,3 +1,4 @@
 baseline*
 src/r1-v/*log*
 __pycache__
+*.txt
