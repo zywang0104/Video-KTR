@@ -20,7 +20,6 @@ python3 -m pip install .
 cd ../
 
 printf "\n" | pip3 uninstall wandb
-hdfs dfs -get hdfs://harunava/user/ziyue.wang/Qwen2.5-VL-7B-COT-SFT
 
 pip3 show transformers
 python3 -c "import transformers; print(transformers.__version__, transformers.__file__)"

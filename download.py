@@ -8,7 +8,7 @@ HDFS_DIR = 'hdfs://harunava/user/ziyue.wang/Video-R1-data'
 # 本地目标目录
 LOCAL_DIR = 'src/r1-v/Video-R1-data/'
 # 并发线程数，根据机器和网络能力调整
-MAX_WORKERS = 800
+MAX_WORKERS = 1500
 
 def list_hdfs_files(hdfs_dir):
     """
