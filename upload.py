@@ -4,12 +4,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm  # 新增
 
 # 本地待上传目录
-LOCAL_DIR = '/opt/tiger/video-R1-Live/normal_rft_8nodes'
+LOCAL_DIR = '/opt/tiger/video-R1-Live/models'
 # HDFS 目标目录
 HDFS_DIR = 'hdfs://harunava/user/ziyue.wang/videor1_models'
 
 # 并发线程数，根据你的机器和集群能力调整
-MAX_WORKERS = 200
+MAX_WORKERS = 500
 
 def list_all_files(root_dir):
     files = []
