@@ -63,6 +63,14 @@ class GRPOScriptArguments(ScriptArguments):
     exp_type: Optional[str] = field(
         default='normal_rft'
     )
+    entropy_ratio: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "entropy ratio"}
+    )
+    dep_ratio: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "dependency ratio"}
+    )
 
 
 

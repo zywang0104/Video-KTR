@@ -8,7 +8,7 @@ HDFS_DIR = 'hdfs://harunava/user/ziyue.wang/Qwen2.5-VL-7B-COT-SFT'
 # 本地目标目录
 LOCAL_DIR = '/opt/tiger/video-R1-Live/Qwen2.5-VL-7B-COT-SFT/'
 # 并发线程数，根据机器和网络能力调整
-MAX_WORKERS = 200
+MAX_WORKERS = 500
 
 def list_hdfs_files(hdfs_dir):
     """

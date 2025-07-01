@@ -172,6 +172,8 @@ class Qwen2VLGRPOTrainer(Trainer):
             args = GRPOConfig(f"{model_name}-GRPO")
         
         self.exp_type = script_args.exp_type
+        self.entropy_ratio = script_args.entropy_ratio
+        self.dep_ratio = script_args.dep_ratio
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(local_rank)
         device = torch.device(f"cuda:{local_rank}")
@@ -389,8 +391,6 @@ class Qwen2VLGRPOTrainer(Trainer):
             log_probs = logits_row.log_softmax(dim=-1)
             token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
             per_token_logps.append(token_log_prob)
-            # entropy_row = -(log_probs * log_probs.exp()).sum(dim=-1)  # (L,)
-            # token_entropies.append(entropy_row)
         return torch.stack(per_token_logps), token_entropies
     
     def remove_none_from_data(self, data):
@@ -413,7 +413,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
 
-        if self.exp_type != 'img_dependent':
+        if 'img_dependent' not in self.exp_type:
             prompts = [x["prompt"] for x in inputs]
             prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
 
@@ -499,14 +499,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                         
                         shuffled_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs, generation_config=self.dummy_generation_config)
 
-            
-            print('path:', input_copy[0]['content'][0][inputs[0]['data_type']])   
-            print('problem_id:', inputs[0]['problem_id'])       
-            print('prompt_length:', prompt_length)
-                    
-            
-            
-            
+
             # Mask everything after the first EOS token
             is_eos = completion_ids == self.processing_class.eos_token_id
             device = self.accelerator.device
@@ -552,10 +545,19 @@ class Qwen2VLGRPOTrainer(Trainer):
             
             # 28 entropy
             if self.exp_type == 'entropy_baseline_batch_level':
-                print(token_entropies.shape)
-                flat_entropy = token_entropies.contiguous().view(-1).float()
-                threshold = torch.quantile(flat_entropy, 1 - 0.35)
+                valid_entropy = token_entropies[completion_mask.bool()] 
+                if valid_entropy.numel() == 0:
+                    raise ValueError("All entries in valid_entropy are NaN or Inf!")
+
+                flat_entropy = valid_entropy.contiguous().view(-1).float()
+                flat_entropy = flat_entropy[torch.isfinite(flat_entropy)]   # 过滤掉 nan 和 inf
+
+                threshold = torch.quantile(flat_entropy, 1 - self.entropy_ratio)
+
+                token_entropies[~(completion_mask.bool())] = float('-inf')
                 entropy_mask = (token_entropies >= threshold).float()  # (bs, seq_len)
+                print(f"Entropy threshold: {threshold}, original data shape: {token_entropies.shape}, selected data shape: {(entropy_mask == 1).sum(dim=1)}, selected token num: {(entropy_mask == 1).sum()}")
+                print('problem_id:', inputs[0]['problem_id'])
                 completion_mask = (completion_mask * entropy_mask).bool()
 
                 # batch_tokens = completion_ids * completion_mask
@@ -574,7 +576,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                     valid_len = completion_mask[i].sum()
                     if valid_len == 0:
                         continue
-                    k = max(1, int(valid_len.item() * 0.2))
+                    k = max(1, int(valid_len.item() * self.entropy_ratio))
                     entropy_i = token_entropies[i] * completion_mask[i]
                     top_indices = torch.topk(entropy_i, k=k).indices
                     top_entropy_mask[i, top_indices] = 1.0
@@ -700,8 +702,8 @@ class Qwen2VLGRPOTrainer(Trainer):
                         if 320 <= lenth_list[idx] <= 512:
                             rewards[idx] += 0.2
             
-            print(rewards)
-            print(completion_mask.sum(1))
+            print(f"rewards: {rewards}")
+            print(f"updated tokens (completion_mask.sum(1)): {completion_mask.sum(1)}")
 
             # Compute grouped-wise rewards
             mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -847,9 +849,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                         shuffled_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs, generation_config=self.dummy_generation_config)
 
                 full_attention = torch.cat([prompt_mask, torch.ones_like(completion_ids, device=prompt_mask.device)], dim=1)
-            print('path:', input_copy[0]['content'][0][inputs[0]['data_type']])   
-            print('problem_id:', inputs[0]['problem_id'])       
-            print('prompt_length:', prompt_length)
                     
             # Mask everything after the first EOS token
             is_eos = completion_ids == self.processing_class.eos_token_id
@@ -885,8 +884,9 @@ class Qwen2VLGRPOTrainer(Trainer):
             try:
                 per_token_logps, token_entropies = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
                 per_token_logps = per_token_logps[:, prompt_length - 1 :]
+                token_entropies = token_entropies[:, prompt_length - 1 :]
                 with torch.no_grad():
-                    masked_logps, token_entropies = self._get_per_token_logps(model, prompt_completion_ids, **masked_inputs)
+                    masked_logps, _ = self._get_per_token_logps(model, prompt_completion_ids, **masked_inputs)
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     dep_scores = per_token_logps - masked_logps
             except Exception as e:
@@ -898,21 +898,53 @@ class Qwen2VLGRPOTrainer(Trainer):
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     dep_scores = per_token_logps - masked_logps
 
-            flat_dep_scores = dep_scores.contiguous().view(-1).float()
-            threshold = torch.quantile(flat_dep_scores, 1 - 0.35)
-            dep_mask = (dep_scores >= threshold).float()  # (bs, seq_len)
-            completion_mask = completion_mask * dep_mask
-            completion_mask = completion_mask.bool()
-            # new_mask = torch.zeros_like(dep_scores, dtype=completion_mask.dtype)
-            # for i in range(B):
-            #     valid = completion_mask[i].bool()
-            #     scores = dep_scores[i].clone()
-            #     scores[~valid] = float('-inf')
-            #     k = max(1, int(valid.sum().item() * 0.2))
-            #     idx = torch.topk(scores, k=k).indices
-            #     new_mask[i, idx] = 1
-            # completion_mask = new_mask
+            valid_mask = copy.deepcopy(completion_mask)
+            valid_dep_scores = dep_scores[valid_mask.bool()] 
+            if valid_dep_scores.numel() == 0:
+                raise ValueError("All entries in flat_dep_scores are NaN or Inf!")
 
+            flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
+            flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]  # 过滤掉 nan 和 inf
+
+            threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
+
+            dep_scores[~(valid_mask.bool())] = float('-inf')
+            dep_mask = (dep_scores >= threshold).float()  # (bs, seq_len)
+            dep_completion_mask = completion_mask * dep_mask.bool()
+            entropy_completion_mask = None
+            print(f"""Dep threshold: {threshold} 
+                    original data shape: {dep_scores.shape},
+                    dep selected data shape: {(dep_mask == 1).sum(dim=1)},
+                    dep selected token num: {(dep_mask == 1).sum()},
+                    current completion_mask: {dep_completion_mask.sum(dim=1)}""")
+            
+
+            if "entropy" in self.exp_type:
+                valid_entropy = token_entropies[valid_mask.bool()] 
+                if valid_entropy.numel() == 0:
+                    raise ValueError("All entries in flat_dep_scores are NaN or Inf!")
+
+                flat_entropy = valid_entropy.contiguous().view(-1).float()
+                flat_entropy = flat_entropy[torch.isfinite(flat_entropy)]   # 过滤掉 nan 和 inf
+
+                threshold = torch.quantile(flat_entropy, 1 - self.entropy_ratio)
+
+                token_entropies[~(valid_mask.bool())] = float('-inf')
+                entropy_mask = (token_entropies >= threshold).float()  # (bs, seq_len)
+                entropy_completion_mask = (valid_mask * entropy_mask).bool()
+                print(f"""Entropy threshold: {threshold} 
+                    original data shape: {token_entropies.shape},
+                    entropy selected data shape: {(entropy_mask == 1).sum(dim=1)},
+                    entropy selected token num: {(entropy_mask == 1).sum()},
+                    entropy completion_mask: {entropy_completion_mask.sum(dim=1)}""")
+            
+            if entropy_completion_mask != None:
+                completion_mask = torch.logical_or(entropy_completion_mask, dep_completion_mask)
+            else:
+                completion_mask = dep_completion_mask
+            
+            print('problem_id:', inputs[0]['problem_id'])
+            print(f"""Final completion mask: {completion_mask.sum(dim=1)}""")
             # output_text = self.processing_class.batch_decode(
             #     completion_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
             # )
@@ -924,26 +956,10 @@ class Qwen2VLGRPOTrainer(Trainer):
             #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
             # )
             # print("High-DEP:", high_dep_tokens)
-            # 以追加模式打开，encoding 根据需要指定
+
             # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/high_dep_tokens.txt', "a", encoding="utf-8") as f:
             #     for item in high_dep_tokens:
             #         f.write(f"{item}\n")
-            
-
-            # 28 entropy
-            # if self.exp_type == 'entropy_baseline':
-            #     top_entropy_mask = torch.zeros_like(token_entropies)
-            #     for i in range(token_entropies.size(0)):
-            #         valid_len = completion_mask[i].sum()
-            #         if valid_len == 0:
-            #             continue
-            #         k = max(1, int(valid_len.item() * 0.2))
-            #         entropy_i = token_entropies[i] * completion_mask[i]
-            #         top_indices = torch.topk(entropy_i, k=k).indices
-            #         top_entropy_mask[i, top_indices] = 1.0
-
-            #     completion_mask = top_entropy_mask
-
 
             with torch.inference_mode():
                 try:
@@ -1054,8 +1070,8 @@ class Qwen2VLGRPOTrainer(Trainer):
                         if 320 <= lenth_list[idx] <= 512:
                             rewards[idx] += 0.2
             
-            print(rewards)
-            print(completion_mask.sum(1))
+            print(f"rewards: {rewards}")
+            print(f"updated tokens (completion_mask.sum(1)): {completion_mask.sum(1)}")
 
             # Compute grouped-wise rewards
             mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)

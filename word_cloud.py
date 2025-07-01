@@ -5,14 +5,14 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
 # 替换为您的文件路径
-file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/high_entropy_tokens_batch_level.txt'
+file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/high_dep_tokens.txt'
 
 # 读取文本
 with open(file_path, 'r', encoding='utf-8') as f:
     text = f.read()
 
 # 生成词云
-wc = WordCloud(width=800, height=400,colormap='magma',background_color='white').generate(text)
+wc = WordCloud(width=800, height=400,colormap='Set2',background_color='white').generate(text)
 
 # 显示词云
 plt.figure(figsize=(15, 7.5))
