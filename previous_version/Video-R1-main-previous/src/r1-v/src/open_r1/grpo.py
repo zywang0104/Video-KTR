@@ -21,11 +21,13 @@ from typing import Optional
 from datasets import load_dataset, load_from_disk
 from transformers import Qwen2VLForConditionalGeneration
 
-from math_verify import parse, verify
-from trainer import Qwen2VLGRPOTrainer, Qwen2VLGRPOVLLMTrainer
+from trainer import Qwen2VLGRPOTrainer, Qwen2VLGRPOVLLMTrainerModified
 from trl import GRPOConfig, GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
 
 from datasets import Dataset, DatasetDict
+
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from rouge_score import rouge_scorer
 
 
 @dataclass
@@ -50,48 +52,127 @@ class GRPOScriptArguments(ScriptArguments):
         default=3136,
         metadata={"help": "Minimum number of pixels for the image"},
     )
+    temporal: Optional[bool] = field(
+        default=True,
+        metadata={"help": "whether using temporal GRPO"},
+    )
+    len_control: Optional[bool] = field(
+        default=True,
+        metadata={"help": "whether using length reward"},
+    )
+    exp_type: Optional[str] = field(
+        default='normal_rft'
+    )
+    entropy_ratio: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "entropy ratio"}
+    )
+    dep_ratio: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "dependency ratio"}
+    )
+
 
 
 def accuracy_reward(completions, solution, **kwargs):
-    """Reward function that checks if the completion is correct using either symbolic verification or exact string matching."""
-    contents = [completion[0]["content"] for completion in completions]
-    rewards = []
-    current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
-    for content, sol in zip(contents, solution):
-        reward = 0.0
-        # Try symbolic verification first
-        try:
-            answer = parse(content)
-            if float(verify(answer, parse(sol))) > 0:
-                reward = 1.0
-        except Exception:
-            pass  # Continue to next verification method if this fails
+    
+    def extract_answer(text):
+        pattern = r'<answer>\s*(.*?)\s*</answer>'
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
 
-        # If symbolic verification failed, try string matching
-        if reward == 0.0:
-            try:
-                # Extract answer from solution if it has think/answer tags
-                sol_match = re.search(r'<answer>(.*?)</answer>', sol)
-                ground_truth = sol_match.group(1).strip() if sol_match else sol.strip()
-                
-                # Extract answer from content if it has think/answer tags
-                content_match = re.search(r'<answer>(.*?)</answer>', content)
-                student_answer = content_match.group(1).strip() if content_match else content.strip()
-                
-                # Compare the extracted answers
-                if student_answer == ground_truth:
-                    reward = 1.0
-            except Exception:
-                pass  # Keep reward as 0.0 if both methods fail
-                
+    def normalize_number(num_str):
+        try:
+            num_str = num_str.replace(',', '')
+            return float(num_str)
+        except Exception as e:
+            print(f"Error converting '{num_str}' to float: {e}")
+            return None
+
+    def wer(reference, hypothesis):
+        ref_words = reference.split()
+        hyp_words = hypothesis.split()
+        m = len(ref_words)
+        n = len(hyp_words)
+        d = [[0]*(n+1) for _ in range(m+1)]
+        for i in range(m+1):
+            d[i][0] = i
+        for j in range(n+1):
+            d[0][j] = j
+        for i in range(1, m+1):
+            for j in range(1, n+1):
+                if ref_words[i-1] == hyp_words[j-1]:
+                    d[i][j] = d[i-1][j-1]
+                else:
+                    d[i][j] = 1 + min(d[i-1][j], d[i][j-1], d[i-1][j-1])
+        return d[m][n] / max(1, m)
+
+
+    def compute_rouge_score(reference, hypothesis, use_stemmer=True):
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=use_stemmer)
+        scores = scorer.score(reference, hypothesis)
+        average_fmeasure = (scores['rouge1'].fmeasure + scores['rouge2'].fmeasure + scores['rougeL'].fmeasure) / 3
+        return average_fmeasure
+    
+
+    question_type = kwargs['problem_type'][0]
+    
+    contents = [completion[0]["content"] for completion in completions]
+    current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
+    rewards = []
+
+    for content, sol in zip(contents, solution):
+    
+        try:
+            output_ans = extract_answer(content)
+            gt_ans = extract_answer(sol)
+            if question_type == "multiple choice":
+                reward = 1.0 if output_ans.strip() == gt_ans.strip() else 0.0
+            elif question_type == "numerical":
+                gt_has_decimal = ("." in gt_ans) or ("," in gt_ans)
+                out_has_decimal = ("." in output_ans) or ("," in output_ans)
+                if gt_has_decimal != out_has_decimal:
+                    reward = 0.0
+                else:
+                    gt_number = normalize_number(gt_ans)
+                    out_number = normalize_number(output_ans)
+                    if gt_number is None or out_number is None:
+                        reward = 0.0
+                    else:
+                        reward = 1.0 if round(gt_number, 2) == round(out_number, 2) else 0.0
+            elif question_type == "OCR":
+                error_rate = wer(gt_ans, output_ans)
+                reward = 1 - error_rate
+                reward = max(0.0, min(1.0, reward))
+            elif question_type == "free-form":
+                score = compute_rouge_score(gt_ans, output_ans)
+                reward = max(0.0, min(1.0, score))
+            elif question_type == "regression":
+                gt_number = normalize_number(gt_ans)
+                out_number = normalize_number(output_ans)
+                if gt_number is None or out_number is None:
+                    reward = 0.0
+                rel_diff = (abs(out_number - gt_number) + 1e-9) / (abs(gt_number) + 1e-9)
+                rel_diff = min(1.0, max(0.0, rel_diff))
+                reward = 1 - rel_diff
+            else:
+                reward = 0.0
+        except Exception as e:
+            print(f"Error in reward_fn for question_type '{question_type}': {e}")
+            reward = 0.0
+    
         rewards.append(reward)
+        
         if os.getenv("DEBUG_MODE") == "true":
             log_path = os.getenv("LOG_PATH")
             # local_rank = int(os.getenv("LOCAL_RANK", 0))
-            with open(log_path, "a") as f:
+            with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"------------- {current_time} Accuracy reward: {reward} -------------\n")
                 f.write(f"Content: {content}\n")
                 f.write(f"Solution: {sol}\n")
+            
     return rewards
 
 
@@ -120,7 +201,7 @@ def main(script_args, training_args, model_args):
     # Get reward functions
     reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
 
-    if script_args.dataset_name[-6:] == '.jsonl':
+    if script_args.dataset_name.endswith('.json') or script_args.dataset_name.endswith('.jsonl'):
         dataset =  DatasetDict({"train": Dataset.from_json(script_args.dataset_name)})
     else:
         # Load the dataset
@@ -136,21 +217,22 @@ def main(script_args, training_args, model_args):
             ],
         }
 
-    # def make_conversation_image(example):
-    #     return {
-    #         "prompt": [
-    #             {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
-    #             {
-    #                 "role": "user",
-    #                 "content": [
-    #                     {"type": "image"},
-    #                     {"type": "text", "text": example["problem"]},
-    #                 ],
-    #             },
-    #         ],
-    #     }
+    
+    QUESTION_TEMPLATE = (
+        "{Question}\n"
+        "Please think about this question as if you were a human pondering deeply. "
+        "Engage in an internal dialogue using expressions such as 'let me think', 'wait', 'Hmm', 'oh, I see', 'let's break it down', etc, or other natural language thought expressions "
+        "It's encouraged to include self-reflection or verification in the reasoning process. "
+        "Provide your detailed reasoning between the <think> </think> tags, and then give your final answer between the <answer> </answer> tags."
+    )
 
-    QUESTION_TEMPLATE = "{Question}  Output the thinking process in <think> </think> and final answer (number) in <answer> </answer> tags."
+    TYPE_TEMPLATE = {
+        "multiple choice": " Please provide only the single option letter (e.g., A, B, C, D, etc.) within the <answer> </answer> tags.",
+        "numerical": " Please provide the numerical value (e.g., 42 or 3.14) within the <answer> </answer> tags.",
+        "OCR": " Please transcribe text from the image/video clearly and provide your text answer within the <answer> </answer> tags.",
+        "free-form": " Please provide your text answer within the <answer> </answer> tags.",
+        "regression": " Please provide the numerical value (e.g., 42 or 3.14) within the <answer> </answer> tags."
+    }
 
     def make_conversation_image(example):
         
@@ -179,26 +261,40 @@ def main(script_args, training_args, model_args):
                 },
             ],
     }
-
-
-    if "image" in dataset[script_args.dataset_train_split].features:
-        print("has image in dataset")
-        dataset = dataset.map(make_conversation_image)  # Utilize multiprocessing for faster mapping
-        # dataset = dataset.remove_columns(["original_question", "original_answer"])
         
-    elif "video_filename" in dataset[script_args.dataset_train_split].features:
-        print("has video in dataset")
-        dataset = dataset.map(make_conversation_video)
+    def make_conversation_image_and_video(example):
+        if example["problem_type"] == 'multiple choice':
+            question = example['problem'] + "Options:\n"
+            for op in example["options"]:
+                question += op + "\n"
+        else:
+            question = example['problem']
 
-    else:
-        print("no image in dataset")
-        dataset = dataset.map(make_conversation)
-        dataset = dataset.remove_columns("messages")
+        
+        msg ={
+            "prompt": 
+               [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": example['data_type'],
+                            # example['data_type']: os.getcwd() + "/Video-R1-data" + example['path'][1:]
+                        },
+                        {
+                            "type": "text",
+                            "text": QUESTION_TEMPLATE.format(Question=question) + TYPE_TEMPLATE[example['problem_type']]
+                        }
+                        ]
+                }]
+            }
+        
+        return msg
 
-    # import pdb
-    # pdb.set_trace()
     
-    trainer_cls = Qwen2VLGRPOTrainer if not training_args.use_vllm else Qwen2VLGRPOVLLMTrainer
+    dataset = dataset.map(make_conversation_image_and_video)
+
+    
+    trainer_cls = Qwen2VLGRPOTrainer if not training_args.use_vllm else Qwen2VLGRPOVLLMTrainerModified
     print("using: ", trainer_cls)
 
     # Initialize the GRPO trainer
@@ -206,6 +302,7 @@ def main(script_args, training_args, model_args):
         model=model_args.model_name_or_path,
         reward_funcs=reward_funcs,
         args=training_args,
+        script_args=script_args,
         train_dataset=dataset[script_args.dataset_train_split],
         eval_dataset=dataset[script_args.dataset_test_split] if training_args.eval_strategy != "no" else None,
         peft_config=get_peft_config(model_args),
@@ -213,9 +310,12 @@ def main(script_args, training_args, model_args):
         max_pixels=script_args.max_pixels,
         min_pixels=script_args.min_pixels,
     )
-
-    # Train and push the model to the Hub
-    trainer.train()
+    
+    if training_args.resume_from_checkpoint is not None:
+        checkpoint = training_args.resume_from_checkpoint
+        trainer.train(resume_from_checkpoint=checkpoint)
+    else:
+        trainer.train()
 
     # Save and push to hub
     trainer.save_model(training_args.output_dir)
