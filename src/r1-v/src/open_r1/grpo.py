@@ -69,8 +69,13 @@ class GRPOScriptArguments(ScriptArguments):
     )
     dep_ratio: Optional[float] = field(
         default=0.2,
-        metadata={"help": "dependency ratio"}
+        metadata={"help": "visual dependency ratio"}
     )
+    temp_dep_ratio: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "temp dep ratio"}
+    )
+    
 
 
 
