@@ -47,7 +47,7 @@ from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_f
 from trl.trainer.grpo_config import GRPOConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url
 
-from qwen_vl_utils import train_process_vision_info
+from qwen_vl_utils import process_vision_info
 
 import copy
 
@@ -422,15 +422,15 @@ class Qwen2VLGRPOTrainer(Trainer):
             input_copy[0]['content'][0]['video'] = os.getcwd() + "/Video-R1-data" + inputs[0]['path'][1:] 
             
         try:
-            image_inputs, video_inputs, video_kwargs = train_process_vision_info(input_copy, return_video_kwargs=True)
+            image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
-            print(f"train_process_vision_info error, using fixed data, {e}")
+            print(f"process_vision_info error, using fixed data, {e}")
             if inputs[0]['data_type'] == 'image':
                 input_copy[0]['content'][0]['image'] = os.getcwd() + "/Video-R1-data" + '/Math/Multimath-300k/17ff4c7d14c388134de02381b1fc2824.png'
             elif inputs[0]['data_type'] == 'video':
                 input_copy[0]['content'][0]['video'] = os.getcwd() + "/Video-R1-data" + '/LLaVA-Video-178K/liwei_youtube_videos/videos/youtube_video_2024/ytb_7nRmsEw7nsE.mp4'
                 
-            image_inputs, video_inputs, video_kwargs = train_process_vision_info(input_copy, return_video_kwargs=True)
+            image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         
         prompt_inputs = self.processing_class(
             text=copy.deepcopy(prompts_text),
