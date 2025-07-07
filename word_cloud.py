@@ -5,7 +5,7 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
 # 替换为您的文件路径
-file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/high_dep_tokens.txt'
+file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/high_temp_dep_tokens.txt'
 
 # 读取文本
 with open(file_path, 'r', encoding='utf-8') as f:

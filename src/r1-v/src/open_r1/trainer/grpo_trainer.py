@@ -638,14 +638,14 @@ class Qwen2VLGRPOTrainer(Trainer):
             #         temp dep selected token num: {(temp_dep_mask == 1).sum()},
             #         current completion_mask: {temp_dep_completion_mask.sum(dim=1)}""")
 
-            batch_tokens = completion_ids * temp_dep_completion_mask
-            batch_tokens = [row[row != 0] for row in batch_tokens]
-            high_dep_tokens = self.processing_class.batch_decode(
-                batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            )
-            with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/high_temp_dep_tokens.txt', "a", encoding="utf-8") as f:
-                for item in high_dep_tokens:
-                    f.write(f"{item}\n")
+            # batch_tokens = completion_ids * temp_dep_completion_mask
+            # batch_tokens = [row[row != 0] for row in batch_tokens]
+            # high_dep_tokens = self.processing_class.batch_decode(
+            #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            # )
+            # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/high_temp_dep_tokens.txt', "a", encoding="utf-8") as f:
+            #     for item in high_dep_tokens:
+            #         f.write(f"{item}\n")
 
 
         # compute the final completion mask
