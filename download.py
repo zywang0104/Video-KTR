@@ -4,11 +4,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 # HDFS 源目录
-HDFS_DIR = 'hdfs://harunava/user/ziyue.wang/Video-R1-data'
+HDFS_DIR = 'hdfs://harunava/user/ziyue.wang/videor1_train_data/Video-R1-data/'
 # 本地目标目录
 LOCAL_DIR = 'src/r1-v/Video-R1-data/'
 # 并发线程数，根据机器和网络能力调整
-MAX_WORKERS = 2500
+MAX_WORKERS = 2000
 
 def list_hdfs_files(hdfs_dir):
     """
