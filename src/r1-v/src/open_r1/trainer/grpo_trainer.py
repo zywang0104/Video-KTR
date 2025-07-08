@@ -47,7 +47,6 @@ from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_f
 from trl.trainer.grpo_config import GRPOConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url
 
-from qwen_vl_utils import process_vision_info
 
 import copy
 
@@ -171,6 +170,11 @@ class Qwen2VLGRPOTrainer(Trainer):
             model_name = model_name.split("/")[-1]
             args = GRPOConfig(f"{model_name}-GRPO")
         
+        if script_args.frame_num == 32:
+            from qwen_vl_utils import process_vision_info_32frames as process_vision_info
+        else:
+            from qwen_vl_utils import process_vision_info
+
         self.exp_type = script_args.exp_type
         self.entropy_ratio = script_args.entropy_ratio
         self.dep_ratio = script_args.dep_ratio

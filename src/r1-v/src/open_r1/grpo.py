@@ -75,6 +75,10 @@ class GRPOScriptArguments(ScriptArguments):
         default=0.2,
         metadata={"help": "temp dep ratio"}
     )
+    frame_num: Optional[int] = field(
+        default=16,
+        metadata={"help": "Number of frames for video"}
+    )
     
 
 

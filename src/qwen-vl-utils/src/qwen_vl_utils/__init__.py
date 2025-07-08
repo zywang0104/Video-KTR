@@ -5,3 +5,7 @@ from .vision_process import (
     process_vision_info,
     smart_resize,
 )
+
+from .vision_process_32frames import (
+    process_vision_info_32frames
+)
