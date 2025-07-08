@@ -170,11 +170,7 @@ class Qwen2VLGRPOTrainer(Trainer):
             model_name = model_name.split("/")[-1]
             args = GRPOConfig(f"{model_name}-GRPO")
         
-        if script_args.frame_num == 32:
-            from qwen_vl_utils import process_vision_info_32frames as process_vision_info
-        else:
-            from qwen_vl_utils import process_vision_info
-
+        self.frame_num = script_args.frame_num
         self.exp_type = script_args.exp_type
         self.entropy_ratio = script_args.entropy_ratio
         self.dep_ratio = script_args.dep_ratio
@@ -424,7 +420,11 @@ class Qwen2VLGRPOTrainer(Trainer):
             input_copy[0]['content'][0]['image'] = os.getcwd() + "/Video-R1-data" + inputs[0]['path'][1:] 
         elif inputs[0]['data_type'] == 'video':
             input_copy[0]['content'][0]['video'] = os.getcwd() + "/Video-R1-data" + inputs[0]['path'][1:] 
-            
+        
+        if self.frame_num == 32:
+            from qwen_vl_utils import process_vision_info_32frames as process_vision_info
+        else:
+            from qwen_vl_utils import process_vision_info
         try:
             image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
