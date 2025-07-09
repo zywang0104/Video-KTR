@@ -79,6 +79,14 @@ class GRPOScriptArguments(ScriptArguments):
         default=16,
         metadata={"help": "Number of frames for video"}
     )
+    soft_k: Optional[float] = field(
+        default=20,
+        metadata={"help": "soft k"}
+    )
+    soft_gamma: Optional[float] = field(
+        default=1.5,
+        metadata={"help": "soft gamma"}
+    )
     
 
 

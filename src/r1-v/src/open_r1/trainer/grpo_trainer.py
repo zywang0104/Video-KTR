@@ -171,6 +171,8 @@ class Qwen2VLGRPOTrainer(Trainer):
             args = GRPOConfig(f"{model_name}-GRPO")
         
         self.frame_num = script_args.frame_num
+        self.soft_k = script_args.soft_k
+        self.soft_gamma = script_args.soft_gamma
         self.exp_type = script_args.exp_type
         self.entropy_ratio = script_args.entropy_ratio
         self.dep_ratio = script_args.dep_ratio
@@ -584,16 +586,33 @@ class Qwen2VLGRPOTrainer(Trainer):
         valid_mask = copy.deepcopy(completion_mask)
         entropy_valid_mask = copy.deepcopy(completion_mask)
         temp_dep_valid_mask = copy.deepcopy(completion_mask)
-
         dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask = None, None, None
+        dep_weight, entropy_weight, temp_dep_weight = None, None, None
+
+        def compute_rank_weights(scores, k=20, gamma=1.5):
+            batch_size, seq_len = scores.shape
+            flat_scores = scores.contiguous().view(-1).float()
+            sorted_indices = torch.argsort(flat_scores, descending=True)
+            ranks = torch.empty_like(sorted_indices)
+            ranks[sorted_indices] = torch.arange(len(flat_scores), device=scores.device)
+            normalized_ranks = ranks.float() / (len(flat_scores) - 1)
+            weights = 1 + gamma * (torch.sigmoid(k * (0.5 - normalized_ranks)) - 0.5)
+            weights = weights.view(batch_size, seq_len)
+            return weights
+        
+        
         if 'img_dependent' in self.exp_type:
-            valid_dep_scores = dep_scores[valid_mask.bool()] 
-            flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
-            flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]  # 过滤掉 nan 和 inf
-            threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
-            dep_scores[~(valid_mask.bool())] = float('-inf')
-            dep_mask = (dep_scores >= threshold).float()  # (bs, seq_len)
-            dep_completion_mask = valid_mask * dep_mask.bool()
+            if 'soft' in self.exp_type:
+                dep_scores[~(valid_mask.bool())] = float('-inf')
+                dep_weight = compute_rank_weights(dep_scores, k=self.soft_k, gamma=self.soft_gamma)
+            else:
+                valid_dep_scores = dep_scores[valid_mask.bool()] 
+                flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
+                flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]  # 过滤掉 nan 和 inf
+                threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
+                dep_scores[~(valid_mask.bool())] = float('-inf')
+                dep_mask = (dep_scores >= threshold).float()  # (bs, seq_len)
+                dep_completion_mask = valid_mask * dep_mask.bool()
             # print(f"""Dep threshold: {threshold} 
             #         original data shape: {dep_scores.shape},
             #         dep selected data shape: {(dep_mask == 1).sum(dim=1)},
@@ -601,17 +620,22 @@ class Qwen2VLGRPOTrainer(Trainer):
             #         current completion_mask: {dep_completion_mask.sum(dim=1)}""")
 
         if 'entropy' in self.exp_type:
-            valid_entropy = token_entropies[entropy_valid_mask.bool()] 
-            if valid_entropy.numel() == 0:
-                raise ValueError("All entries in valid_entropy are NaN or Inf!")
+            if 'soft' in self.exp_type:
+                token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
+                entropy_weight = compute_rank_weights(token_entropies, k=self.soft_k, gamma=self.soft_gamma)
+            else:
+                valid_entropy = token_entropies[entropy_valid_mask.bool()] 
+                if valid_entropy.numel() == 0:
+                    raise ValueError("All entries in valid_entropy are NaN or Inf!")
 
-            flat_entropy = valid_entropy.contiguous().view(-1).float()
-            flat_entropy = flat_entropy[torch.isfinite(flat_entropy)]   # 过滤掉 nan 和 inf
-            threshold = torch.quantile(flat_entropy, 1 - self.entropy_ratio)
+                flat_entropy = valid_entropy.contiguous().view(-1).float()
+                flat_entropy = flat_entropy[torch.isfinite(flat_entropy)]   # 过滤掉 nan 和 inf
+                threshold = torch.quantile(flat_entropy, 1 - self.entropy_ratio)
 
-            token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
-            entropy_mask = (token_entropies >= threshold).float()  # (bs, seq_len)
-            entropy_completion_mask = (entropy_valid_mask * entropy_mask).bool()
+                token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
+                entropy_mask = (token_entropies >= threshold).float()  # (bs, seq_len)
+                entropy_completion_mask = (entropy_valid_mask * entropy_mask).bool()
+                
             # print(f"""Entropy threshold: {threshold} 
             #         original data shape: {token_entropies.shape},
             #         entropy selected data shape: {(entropy_mask == 1).sum(dim=1)},
@@ -629,13 +653,18 @@ class Qwen2VLGRPOTrainer(Trainer):
             #     for item in high_dep_tokens:
             #         f.write(f"{item}\n")
         if 'temp_dep' in self.exp_type and inputs[0]['data_type'] == 'video':
-            valid_temp_dep_scores = temp_dep_scores[temp_dep_valid_mask.bool()] 
-            flat_temp_dep_scores = valid_temp_dep_scores.contiguous().view(-1).float()
-            flat_temp_dep_scores = flat_temp_dep_scores[torch.isfinite(flat_temp_dep_scores)]
-            threshold = torch.quantile(flat_temp_dep_scores, 1 - self.temp_dep_ratio)
-            temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
-            temp_dep_mask = (temp_dep_scores >= threshold).float()  # (bs, seq_len)
-            temp_dep_completion_mask = temp_dep_valid_mask * temp_dep_mask.bool()
+            if 'soft' in self.exp_type:
+                temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
+                temp_dep_weight = compute_rank_weights(temp_dep_scores, k=self.soft_k, gamma=self.soft_gamma)
+            else:
+                valid_temp_dep_scores = temp_dep_scores[temp_dep_valid_mask.bool()] 
+                flat_temp_dep_scores = valid_temp_dep_scores.contiguous().view(-1).float()
+                flat_temp_dep_scores = flat_temp_dep_scores[torch.isfinite(flat_temp_dep_scores)]
+                threshold = torch.quantile(flat_temp_dep_scores, 1 - self.temp_dep_ratio)
+                temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
+                temp_dep_mask = (temp_dep_scores >= threshold).float()  # (bs, seq_len)
+                temp_dep_completion_mask = temp_dep_valid_mask * temp_dep_mask.bool()
+                
             # print(f"""Temp dep threshold: {threshold} 
             #         original data shape: {temp_dep_scores.shape},
             #         temp dep selected data shape: {(temp_dep_mask == 1).sum(dim=1)},
@@ -651,13 +680,23 @@ class Qwen2VLGRPOTrainer(Trainer):
             #     for item in high_dep_tokens:
             #         f.write(f"{item}\n")
 
-
+        
         # compute the final completion mask
-        valid_masks = [t for t in [dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask] if t is not None]
-        if valid_masks:
-            completion_mask = valid_masks[0]
-            for t in valid_masks[1:]:
-                completion_mask = torch.logical_or(completion_mask, t)
+        if 'soft' in self.exp_type:
+            valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
+            if valid_weights:
+                final_weights = valid_weights[0]
+                for t in valid_weights[1:]:
+                    final_weights = final_weights + t
+                final_weights = final_weights / len(valid_weights)
+
+        else:
+            valid_masks = [t for t in [dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask] if t is not None]
+            if valid_masks:
+                completion_mask = valid_masks[0]
+                for t in valid_masks[1:]:
+                    completion_mask = torch.logical_or(completion_mask, t)
+        
 
         print(f"ORGINAL completion_mask: {valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(valid_mask == 1).sum()}")
         print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(valid_mask == 1).sum()}")
@@ -778,6 +817,9 @@ class Qwen2VLGRPOTrainer(Trainer):
         per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
         per_token_loss = -(per_token_loss - self.beta * per_token_kl)
         # per_token_loss = -per_token_loss
+        if 'soft' in self.exp_type:
+            per_token_loss = per_token_loss * final_weights
+
         loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
 
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
