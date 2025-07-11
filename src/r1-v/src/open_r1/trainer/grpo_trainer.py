@@ -682,6 +682,7 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         
         # compute the final completion mask
+        final_weights = None
         if 'soft' in self.exp_type:
             valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
             if valid_weights:
@@ -817,7 +818,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
         per_token_loss = -(per_token_loss - self.beta * per_token_kl)
         # per_token_loss = -per_token_loss
-        if 'soft' in self.exp_type:
+        if final_weights:
             per_token_loss = per_token_loss * final_weights
 
         loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
