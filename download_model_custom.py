@@ -11,7 +11,7 @@ args = parser.parse_args()
 file = args.model_name
 # HDFS 源目录
 HDFS_DIR = f'hdfs://harunava/user/ziyue.wang/videor1_models/{file}/'
-LOCAL_DIR = f'/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/holmes_models/{file}'
+LOCAL_DIR = f'/opt/tiger/video-R1-Live/{file}'
 os.makedirs(LOCAL_DIR,exist_ok=True)
 # 并发线程数，根据机器和网络能力调整
 MAX_WORKERS = 500
