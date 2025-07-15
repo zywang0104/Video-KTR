@@ -600,11 +600,40 @@ class Qwen2VLGRPOTrainer(Trainer):
             weights = weights.view(batch_size, seq_len)
             return weights
         
+        def piecewise_normal_mapping(scores):
+            batch_size, seq_len = scores.shape
+            flat_scores = scores.contiguous().view(-1).float()
+            ranks = np.argsort(np.argsort(flat_scores))
+            p = ranks / (len(flat_scores) - 1)
+            cdf_neg2 = norm.cdf(-2)
+            cdf_neg1 = norm.cdf(-1)
+            cdf_pos1 = norm.cdf(1)
+            cdf_pos2 = norm.cdf(2)
+
+            result = np.zeros_like(p)
+
+            mask1 = p <= 0.2
+            result[mask1] = norm.ppf(cdf_neg2 + (cdf_neg1 - cdf_neg2) * (p[mask1] / 0.2))
+
+            mask2 = (p > 0.2) & (p <= 0.8)
+            result[mask2] = norm.ppf(cdf_neg1 + (cdf_pos1 - cdf_neg1) * ((p[mask2] - 0.2) / 0.6))
+
+            mask3 = p > 0.8
+            result[mask3] = norm.ppf(cdf_pos1 + (cdf_pos2 - cdf_pos1) * ((p[mask3] - 0.8) / 0.2))
+            
+            result = result.view(batch_size, seq_len)
+            result[torch.isnan(result)] = 0
+            result[result < 0] = 0
+            return result
         
         if 'img_dependent' in self.exp_type:
             if 'soft' in self.exp_type:
                 dep_scores[~(valid_mask.bool())] = float('-inf')
                 dep_weight = compute_rank_weights(dep_scores, k=self.soft_k, gamma=self.soft_gamma)
+            elif 'dist' in self.exp_type:
+                dep_scores[~(valid_mask.bool())] = float('-inf')
+                dep_weight = piecewise_normal_mapping(dep_scores)
+
             else:
                 valid_dep_scores = dep_scores[valid_mask.bool()] 
                 flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
@@ -623,6 +652,9 @@ class Qwen2VLGRPOTrainer(Trainer):
             if 'soft' in self.exp_type:
                 token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
                 entropy_weight = compute_rank_weights(token_entropies, k=self.soft_k, gamma=self.soft_gamma)
+            elif 'dist' in self.exp_type:
+                token_entropies[~(valid_mask.bool())] = float('-inf')
+                entropy_weight = piecewise_normal_mapping(token_entropies)
             else:
                 valid_entropy = token_entropies[entropy_valid_mask.bool()] 
                 if valid_entropy.numel() == 0:
@@ -656,6 +688,9 @@ class Qwen2VLGRPOTrainer(Trainer):
             if 'soft' in self.exp_type:
                 temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
                 temp_dep_weight = compute_rank_weights(temp_dep_scores, k=self.soft_k, gamma=self.soft_gamma)
+            elif 'dist' in self.exp_type:
+                temp_dep_scores[~(valid_mask.bool())] = float('-inf')
+                temp_dep_weight = piecewise_normal_mapping(temp_dep_scores)
             else:
                 valid_temp_dep_scores = temp_dep_scores[temp_dep_valid_mask.bool()] 
                 flat_temp_dep_scores = valid_temp_dep_scores.contiguous().view(-1).float()
