@@ -740,14 +740,14 @@ class Qwen2VLGRPOTrainer(Trainer):
         
         # compute the final completion mask
         final_weights = None
-        if 'soft' in self.exp_type:
+        if ('soft' in self.exp_type or 'dist' in self.exp_type) and 'max' not in self.exp_type:
             valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
             if valid_weights:
                 final_weights = valid_weights[0]
                 for t in valid_weights[1:]:
                     final_weights = final_weights + t
                 final_weights = final_weights / len(valid_weights)
-        if 'dist' in self.exp_type:
+        if ('soft' in self.exp_type or 'dist' in self.exp_type) and 'max' in self.exp_type:
             valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
             if len(valid_weights) == 1:
                 final_weights = valid_weights[0]
