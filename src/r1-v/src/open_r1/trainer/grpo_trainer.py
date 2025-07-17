@@ -747,6 +747,13 @@ class Qwen2VLGRPOTrainer(Trainer):
                 for t in valid_weights[1:]:
                     final_weights = final_weights + t
                 final_weights = final_weights / len(valid_weights)
+        if 'dist' in self.exp_type:
+            valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
+            if len(valid_weights) == 1:
+                final_weights = valid_weights[0]
+            else:
+                valid_weights = torch.stack(valid_weights)
+                final_weights, _ = torch.max(valid_weights, dim=0)
 
         else:
             valid_masks = [t for t in [dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask] if t is not None]
