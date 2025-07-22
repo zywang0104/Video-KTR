@@ -461,26 +461,27 @@ class Qwen2VLGRPOTrainer(Trainer):
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
-        if 'temp_dep_reverse' in self.exp_type and video_inputs:
-            indices = torch.arange(video_inputs[0].size(0) - 1, -1, -1)
-            shuffled_video_inputs = [video_inputs[0][indices]]
-            shuffled_prompt_inputs = self.processing_class(
-                text=copy.deepcopy(prompts_text),
-                images=image_inputs,
-                videos=shuffled_video_inputs,
-                return_tensors="pt",
-                padding=True,
-                padding_side="left",
-                add_special_tokens=False,
-            )
-            shuffled_prompt_inputs = super()._prepare_inputs(shuffled_prompt_inputs)
-            shuffled_prompt_ids, shuffled_prompt_mask = shuffled_prompt_inputs["input_ids"], shuffled_prompt_inputs["attention_mask"]
-            if self.max_prompt_length is not None:
-                shuffled_prompt_ids = shuffled_prompt_ids[:, -self.max_prompt_length :]
-                shuffled_prompt_mask = shuffled_prompt_mask[:, -self.max_prompt_length :]
-        elif (self.temporal or 'temp_dep' in self.exp_type) and video_inputs:
-            indices = torch.randperm(video_inputs[0].size(0))
-            shuffled_video_inputs = [video_inputs[0][indices]]
+
+        if (self.temporal or 'temp_dep' in self.exp_type) and video_inputs:
+            if 'reverse' in self.exp_type:
+                indices = torch.arange(video_inputs[0].size(0) - 1, -1, -1)
+                shuffled_video_inputs = [video_inputs[0][indices]]
+            elif 'partial_shuffle' in self.exp_type:
+                T = video_inputs[0].size(0)  # 总帧数
+                seg_len = 4  # 每段长度（你可调节）
+                num_segs = T // seg_len
+                video = video_inputs[0][:num_segs * seg_len]
+                segments = video.view(num_segs, seg_len, *video.shape[1:])
+                perm = torch.randperm(num_segs)
+                shuffled_segments = segments[perm]
+                shuffled_video = shuffled_segments.view(-1, *video.shape[1:])
+                if T % seg_len != 0:
+                    tail = video_inputs[0][num_segs * seg_len:]
+                    shuffled_video = torch.cat([shuffled_video, tail], dim=0)
+                shuffled_video_inputs = [shuffled_video]
+            else:
+                indices = torch.randperm(video_inputs[0].size(0))
+                shuffled_video_inputs = [video_inputs[0][indices]]
             shuffled_prompt_inputs = self.processing_class(
                 text=copy.deepcopy(prompts_text),
                 images=image_inputs,
