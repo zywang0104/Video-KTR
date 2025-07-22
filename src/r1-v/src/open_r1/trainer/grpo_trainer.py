@@ -461,7 +461,24 @@ class Qwen2VLGRPOTrainer(Trainer):
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
-        if (self.temporal or 'temp_dep' in self.exp_type) and video_inputs:
+        if 'temp_dep_reverse' in self.exp_type and video_inputs:
+            indices = torch.arange(video_inputs[0].size(0) - 1, -1, -1)
+            shuffled_video_inputs = [video_inputs[0][indices]]
+            shuffled_prompt_inputs = self.processing_class(
+                text=copy.deepcopy(prompts_text),
+                images=image_inputs,
+                videos=shuffled_video_inputs,
+                return_tensors="pt",
+                padding=True,
+                padding_side="left",
+                add_special_tokens=False,
+            )
+            shuffled_prompt_inputs = super()._prepare_inputs(shuffled_prompt_inputs)
+            shuffled_prompt_ids, shuffled_prompt_mask = shuffled_prompt_inputs["input_ids"], shuffled_prompt_inputs["attention_mask"]
+            if self.max_prompt_length is not None:
+                shuffled_prompt_ids = shuffled_prompt_ids[:, -self.max_prompt_length :]
+                shuffled_prompt_mask = shuffled_prompt_mask[:, -self.max_prompt_length :]
+        elif (self.temporal or 'temp_dep' in self.exp_type) and video_inputs:
             indices = torch.randperm(video_inputs[0].size(0))
             shuffled_video_inputs = [video_inputs[0][indices]]
             shuffled_prompt_inputs = self.processing_class(
@@ -530,7 +547,15 @@ class Qwen2VLGRPOTrainer(Trainer):
             vid_id = model.config.get('image_token_id', 151656)
 
             vis_pos = (prompt_completion_ids == img_id) | (prompt_completion_ids == vid_id)
-            masked_inputs["attention_mask"][vis_pos] = 0
+            if 'partial' in self.exp_type:
+                vis_indices = vis_pos.nonzero(as_tuple=False)  # [N, 2]
+                num_to_mask = vis_indices.size(0) // 2
+                selected = vis_indices[torch.randperm(vis_indices.size(0))[:num_to_mask]]
+                partial_mask = torch.zeros_like(masked_inputs["attention_mask"], dtype=torch.bool)
+                partial_mask[selected[:, 0], selected[:, 1]] = True  # 只对选中的位置赋值为 True
+                masked_inputs["attention_mask"][partial_mask] = 0
+            else:
+                masked_inputs["attention_mask"][vis_pos] = 0
         
         if 'temp_dep' in self.exp_type and inputs[0]['data_type'] == 'video':
             shuffled_prompt_inputs["pixel_values_videos"] = shuffled_prompt_inputs["pixel_values_videos"].repeat(len(prompt_completion_ids), 1).to(device)
