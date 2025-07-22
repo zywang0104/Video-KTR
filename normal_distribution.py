@@ -44,8 +44,8 @@ def piecewise_normal_mapping(scores):
     result = result.view(batch_size, seq_len)
 
     # 替换 nan 和负数为 0
-    result[torch.isnan(result)] = 0
-    result[result < 0] = 0
+    # result[torch.isnan(result)] = 0
+    # result[result < 0] = 0
 
     return result
 

@@ -751,6 +751,8 @@ class Qwen2VLGRPOTrainer(Trainer):
             valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
             if len(valid_weights) == 1:
                 final_weights = valid_weights[0]
+            elif len(valid_weights) == 0:
+                final_weights = None
             else:
                 valid_weights = torch.stack(valid_weights)
                 final_weights, _ = torch.max(valid_weights, dim=0)
