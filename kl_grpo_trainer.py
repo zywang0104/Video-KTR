@@ -433,7 +433,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         if self.frame_num == 32:
             from qwen_vl_utils import process_vision_info_32frames as process_vision_info
         else:
-            from qwen_vl_utils import process_vision_info
+            from qwen_vl_utils import train_process_vision_info as process_vision_info
         try:
             image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
@@ -781,6 +781,20 @@ class Qwen2VLGRPOTrainer(Trainer):
                 temp_dep_mask = (temp_dep_scores >= threshold).float()  # (bs, seq_len)
                 temp_dep_completion_mask = temp_dep_valid_mask * temp_dep_mask.bool()
                 
+            # print(f"""Temp dep threshold: {threshold} 
+            #         original data shape: {temp_dep_scores.shape},
+            #         temp dep selected data shape: {(temp_dep_mask == 1).sum(dim=1)},
+            #         temp dep selected token num: {(temp_dep_mask == 1).sum()},
+            #         current completion_mask: {temp_dep_completion_mask.sum(dim=1)}""")
+
+            # batch_tokens = completion_ids * temp_dep_completion_mask
+            # batch_tokens = [row[row != 0] for row in batch_tokens]
+            # high_dep_tokens = self.processing_class.batch_decode(
+            #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            # )
+            # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/high_temp_dep_tokens.txt', "a", encoding="utf-8") as f:
+            #     for item in high_dep_tokens:
+            #         f.write(f"{item}\n")
 
         
         # compute the final completion mask
@@ -812,6 +826,25 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         print(f"ORGINAL completion_mask: {valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(valid_mask == 1).sum()}")
         print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(valid_mask == 1).sum()}")
+        selected_tokens = completion_ids * completion_mask
+        unselected_tokens = completion_ids[~completion_mask]
+        selected_tokens = [row[row != 0] for row in selected_tokens]
+        unselected_tokens = [row[row != 0] for row in unselected_tokens]
+        selected_tokens = self.processing_class.batch_decode(
+            selected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+        unselected_tokens = self.processing_class.batch_decode(
+            unselected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+        # print("Selected Tokens:", selected_tokens)
+        # print("Unselected Tokens:", unselected_tokens)
+        # # 以追加模式打开，encoding 根据需要指定
+        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/selected_tokens.txt', "a", encoding="utf-8") as f:
+        #     for item in selected_tokens:
+        #         f.write(f"{item}\n")
+        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/unselected_tokens.txt', "a", encoding="utf-8") as f:
+        #     for item in unselected_tokens:
+        #         f.write(f"{item}\n")
 
         with torch.inference_mode():
             try:
