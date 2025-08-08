@@ -87,7 +87,7 @@ class GRPOScriptArguments(ScriptArguments):
         default=1.5,
         metadata={"help": "soft gamma"}
     )
-    tw_gpro: Optional[float] = field(
+    tw_grpo: Optional[float] = field(
         default=0,
         metadata={"help": "tw_grpo"}
     )
