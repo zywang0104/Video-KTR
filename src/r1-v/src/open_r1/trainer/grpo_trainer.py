@@ -178,6 +178,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         self.soft_k = script_args.soft_k
         self.soft_gamma = script_args.soft_gamma
         self.exp_type = script_args.exp_type
+        self.tw_grpo = script_args.tw_grpo
         self.entropy_ratio = script_args.entropy_ratio
         self.dep_ratio = script_args.dep_ratio
         self.temp_dep_ratio = script_args.temp_dep_ratio
