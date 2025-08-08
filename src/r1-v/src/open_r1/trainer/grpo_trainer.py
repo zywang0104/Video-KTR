@@ -17,10 +17,12 @@ import textwrap
 from collections import defaultdict
 from typing import Any, Callable, Optional, Union
 import random
+import math
 import numpy as np 
 
 import torch
 import torch.utils.data
+import torch.nn.functional as F
 import transformers
 from datasets import Dataset, IterableDataset
 from packaging import version
@@ -374,30 +376,85 @@ class Qwen2VLGRPOTrainer(Trainer):
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
 
+    def compute_tokenwise_kl_distance(self, logits_p, logits_q, eps=1e-8):
+        with torch.no_grad():
+            log_p = F.log_softmax(logits_p, dim=-1)
+            log_q = F.log_softmax(logits_q, dim=-1)
+            p = log_p.exp()
+            kl = torch.sum(p * (log_p - log_q), dim=-1)
+        return kl
 
-    # Get the per-token log probabilities for the completions for the model and the reference model
+    def compute_tokenwise_jsd_distance(self, logits_p, logits_q, eps=1e-8):
+        with torch.no_grad():
+            p = F.softmax(logits_p, dim=-1)
+            q = F.softmax(logits_q, dim=-1)
+            m = 0.5 * (p + q)
+            log_p = torch.log(p + eps)
+            log_q = torch.log(q + eps)
+            log_m = torch.log(m + eps)
+            kl_pm = torch.sum(p * (log_p - log_m), dim=-1)
+            kl_qm = torch.sum(q * (log_q - log_m), dim=-1)
+            jsd = 0.5 * (kl_pm + kl_qm)
+        return jsd
+
+    def compute_tokenwise_l1_distance(self, logits_p, logits_q):
+        with torch.no_grad():
+            p = F.softmax(logits_p, dim=-1)
+            q = F.softmax(logits_q, dim=-1)
+            l1 = torch.sum(torch.abs(p - q), dim=-1)
+        return l1
+
+    def compute_tokenwise_l2_distance(self, logits_p, logits_q):
+        with torch.no_grad():
+            p = F.softmax(logits_p, dim=-1)
+            q = F.softmax(logits_q, dim=-1)
+            l2 = torch.sqrt(torch.sum((p - q) ** 2, dim=-1))
+        return l2
+
+    def compute_tokenwise_cosine_similarity(self, logits_p, logits_q):
+        with torch.no_grad():
+            p_norm = F.normalize(logits_p, p=2, dim=-1)
+            q_norm = F.normalize(logits_q, p=2, dim=-1)
+            cosine = torch.sum(p_norm * q_norm, dim=-1)
+        return cosine
+
+    def compute_tokenwise_hellinger_distance(self, logits_p, logits_q, eps=1e-8):
+        with torch.no_grad():
+            p = torch.sqrt(F.softmax(logits_p, dim=-1) + eps)
+            q = torch.sqrt(F.softmax(logits_q, dim=-1) + eps)
+            diff_squared = (p - q) ** 2
+            sum_diff = torch.sum(diff_squared, dim=-1)
+            hellinger = (1.0 / torch.sqrt(torch.tensor(2.0))) * torch.sqrt(sum_diff)
+        return hellinger
+    
+    def keep_token_by_ratio(self, scores, valid_mask):
+        valid_dep_scores = scores[valid_mask.bool()] 
+        flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
+        flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]
+        threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
+        scores[~(valid_mask.bool())] = float('-inf')
+        dep_mask = (scores >= threshold).float()
+        dep_completion_mask = valid_mask * dep_mask.bool()
+        return dep_completion_mask
+
     def compute_token_entropy(self, logits):
         with torch.no_grad():
             probs = torch.softmax(logits, dim=-1)
             log_probs = torch.log_softmax(logits, dim=-1)
             entropy = -torch.sum(probs * log_probs, dim=-1)  # [bsz, seq_len] or [nnz]
-        return entropy, log_probs
+        return entropy
 
     def _get_per_token_logps(self, model, input_ids, need_entropy=True, **kwargs):
         logits = model(input_ids, **kwargs).logits
         logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
         input_ids = input_ids[:, 1:]  # (B, L-1), exclude the first input ID since we don't have logits for it
         per_token_logps = []
-        if need_entropy:
-            token_entropies,output_logits = self.compute_token_entropy(logits)
-        else:
-            token_entropies = None
-            output_logits = None
         for logits_row, input_ids_row in zip(logits, input_ids):
             log_probs = logits_row.log_softmax(dim=-1)
             token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
             per_token_logps.append(token_log_prob)
-        return torch.stack(per_token_logps), token_entropies, output_logits
+        return torch.stack(per_token_logps), None, logits
+        
     
     def remove_none_from_data(self, data):
         for entry in data:
@@ -433,7 +490,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         if self.frame_num == 32:
             from qwen_vl_utils import process_vision_info_32frames as process_vision_info
         else:
-            from qwen_vl_utils import process_vision_info
+            from qwen_vl_utils import train_process_vision_info as process_vision_info
         try:
             image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
@@ -572,7 +629,8 @@ class Qwen2VLGRPOTrainer(Trainer):
             shuffled_prompt_inputs.pop('attention_mask')
         
         try:
-            per_token_logps, token_entropies, per_token_logits = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
+            per_token_logps, _, per_token_logits = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
+            token_entropies = self.compute_token_entropy(per_token_logits)
             per_token_logps = per_token_logps[:, prompt_length - 1 :]
             token_entropies = token_entropies[:, prompt_length - 1 :]
             per_token_logits = per_token_logits[:, prompt_length - 1 :]
@@ -581,7 +639,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                     masked_logps, _, masked_logits = self._get_per_token_logps(model, prompt_completion_ids, **masked_inputs)
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     masked_logits = masked_logits[:, prompt_length - 1:]
-                    dep_scores = per_token_logps - masked_logps
                 else:
                     # dummy call to ensure NCCL sync
                     _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids, need_entropy=False, **prompt_inputs)
@@ -591,7 +648,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                         temp_dep_logps, _, temp_dep_logits = self._get_per_token_logps(model, prompt_completion_ids, **shuffled_prompt_inputs)
                         temp_dep_logps = temp_dep_logps[:, prompt_length - 1:]
                         temp_dep_logits = temp_dep_logits[:, prompt_length - 1:]
-                        temp_dep_scores = per_token_logps - temp_dep_logps
                     else:
                          _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False, **prompt_inputs)
                 else:
@@ -605,7 +661,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                     masked_logps, _, masked_logits = self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     masked_logits = masked_logits[:, prompt_length - 1:]
-                    dep_scores = per_token_logps - masked_logps
                 else:
                     # dummy call to ensure NCCL sync
                     _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
@@ -615,7 +670,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                         temp_dep_logps, _, temp_dep_logits = self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                         temp_dep_logps = temp_dep_logps[:, prompt_length - 1:]
                         temp_dep_logits = temp_dep_logits[:, prompt_length - 1:]
-                        temp_dep_scores = per_token_logps - temp_dep_logps
                     else:
                          _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                 else:
@@ -685,32 +739,27 @@ class Qwen2VLGRPOTrainer(Trainer):
             return result
             
         if 'img_dependent' in self.exp_type:
+            if any(key in self.exp_type for key in ['kl', 'l1', 'jsd', 'l2', 'cos_sim','hellinger']):
+                if 'kl' in self.exp_type:
+                    dep_scores = self.compute_tokenwise_kl_distance(per_token_logits, masked_logits)
+                elif 'l1' in self.exp_type:
+                    dep_scores = self.compute_tokenwise_l1_distance(per_token_logits, masked_logits)
+                elif 'l2' in self.exp_type:
+                    dep_scores = self.compute_tokenwise_l2_distance(per_token_logits, masked_logits)
+                elif 'cos_sim' in self.exp_type:
+                    dep_scores = self.compute_tokenwise_cosine_similarity(per_token_logits, masked_logits)
+                elif 'hellinger' in self.exp_type:
+                    dep_scores = self.compute_tokenwise_hellinger_distance(per_token_logits, masked_logits)
+            else:
+                with torch.no_grad():
+                    dep_scores = per_token_logps - masked_logps
             if 'soft' in self.exp_type:
                 dep_scores[~(valid_mask.bool())] = float('-inf')
                 dep_weight = compute_rank_weights(dep_scores, k=self.soft_k, gamma=self.soft_gamma)
             elif 'dist' in self.exp_type:
                 dep_scores[~(valid_mask.bool())] = float('-inf')
                 dep_weight = piecewise_normal_mapping(dep_scores)
-            elif 'kl' in self.exp_type:
-                with torch.no_grad():
-                    # Convert to probabilities
-                    v_p = per_token_logits.exp()  # [B, L, V]
-                    v_kl_div = (v_p * (per_token_logits - masked_logits)).sum(dim=-1)  # [B, L]
-                    valid_v_kl_div = v_kl_div[valid_mask.bool()]
-                    valid_v_kl_div = valid_v_kl_div.contiguous().view(-1).float()
-                    valid_v_kl_div = valid_v_kl_div[torch.isfinite(valid_v_kl_div)]
-                    threshold = torch.quantile(valid_v_kl_div, 1 - self.dep_ratio)
-                    v_kl_div[~(valid_mask.bool())] = float('-inf')
-                    dep_mask = (v_kl_div >= threshold).float()  # (bs, seq_len)
-                    dep_completion_mask = valid_mask * dep_mask.bool()
-            else:
-                valid_dep_scores = dep_scores[valid_mask.bool()] 
-                flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
-                flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]  # 过滤掉 nan 和 inf
-                threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
-                dep_scores[~(valid_mask.bool())] = float('-inf')
-                dep_mask = (dep_scores >= threshold).float()  # (bs, seq_len)
-                dep_completion_mask = valid_mask * dep_mask.bool()
+            dep_completion_mask = self.keep_token_by_ratio(dep_scores, valid_mask)
             # print(f"""Dep threshold: {threshold} 
             #         original data shape: {dep_scores.shape},
             #         dep selected data shape: {(dep_mask == 1).sum(dim=1)},
@@ -754,33 +803,42 @@ class Qwen2VLGRPOTrainer(Trainer):
             #     for item in high_dep_tokens:
             #         f.write(f"{item}\n")
         if 'temp_dep' in self.exp_type and inputs[0]['data_type'] == 'video':
+            if any(key in self.exp_type for key in ['kl', 'l1', 'jsd', 'l2', 'cos_sim','hellinger']):
+                if 'kl' in self.exp_type:
+                    temp_dep_scores = self.compute_tokenwise_kl_distance(per_token_logits, temp_dep_logits)
+                elif 'l1' in self.exp_type:
+                    temp_dep_scores = self.compute_tokenwise_l1_distance(per_token_logits, temp_dep_logits)
+                elif 'l2' in self.exp_type:
+                    temp_dep_scores = self.compute_tokenwise_l2_distance(per_token_logits, temp_dep_logits)
+                elif 'cos_sim' in self.exp_type:
+                    temp_dep_scores = self.compute_tokenwise_cosine_similarity(per_token_logits, temp_dep_logits)
+                elif 'hellinger' in self.exp_type:
+                    temp_dep_scores = self.compute_tokenwise_hellinger_distance(per_token_logits, temp_dep_logits)
+            else:
+                with torch.no_grad():
+                    temp_dep_scores = per_token_logps - temp_dep_logps
             if 'soft' in self.exp_type:
                 temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
                 temp_dep_weight = compute_rank_weights(temp_dep_scores, k=self.soft_k, gamma=self.soft_gamma)
             elif 'dist' in self.exp_type:
                 temp_dep_scores[~(valid_mask.bool())] = float('-inf')
                 temp_dep_weight = piecewise_normal_mapping(temp_dep_scores)
-            elif 'kl' in self.exp_type:
-                with torch.no_grad():
-                    # Convert to probabilities
-                    t_p = per_token_logits.exp()  # [B, L, V]
-                    t_kl_div = (t_p * (per_token_logits - temp_dep_logits)).sum(dim=-1)  # [B, L]
-                    valid_t_kl_div = t_kl_div[temp_dep_valid_mask.bool()]
-                    valid_t_kl_div = valid_t_kl_div.contiguous().view(-1).float()
-                    valid_t_kl_div = valid_t_kl_div[torch.isfinite(valid_t_kl_div)]
-                    threshold = torch.quantile(valid_t_kl_div, 1 - self.temp_dep_ratio)
-                    t_kl_div[~(temp_dep_valid_mask.bool())] = float('-inf')
-                    temp_dep_mask = (t_kl_div >= threshold).float()  # (bs, seq_len)
-                    temp_dep_completion_mask = temp_dep_valid_mask * temp_dep_mask.bool()
-            else:
-                valid_temp_dep_scores = temp_dep_scores[temp_dep_valid_mask.bool()] 
-                flat_temp_dep_scores = valid_temp_dep_scores.contiguous().view(-1).float()
-                flat_temp_dep_scores = flat_temp_dep_scores[torch.isfinite(flat_temp_dep_scores)]
-                threshold = torch.quantile(flat_temp_dep_scores, 1 - self.temp_dep_ratio)
-                temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
-                temp_dep_mask = (temp_dep_scores >= threshold).float()  # (bs, seq_len)
-                temp_dep_completion_mask = temp_dep_valid_mask * temp_dep_mask.bool()
+            temp_dep_completion_mask = self.keep_token_by_ratio(temp_dep_scores, temp_dep_valid_mask)
                 
+            # print(f"""Temp dep threshold: {threshold} 
+            #         original data shape: {temp_dep_scores.shape},
+            #         temp dep selected data shape: {(temp_dep_mask == 1).sum(dim=1)},
+            #         temp dep selected token num: {(temp_dep_mask == 1).sum()},
+            #         current completion_mask: {temp_dep_completion_mask.sum(dim=1)}""")
+
+            # batch_tokens = completion_ids * temp_dep_completion_mask
+            # batch_tokens = [row[row != 0] for row in batch_tokens]
+            # high_dep_tokens = self.processing_class.batch_decode(
+            #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            # )
+            # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/high_temp_dep_tokens.txt', "a", encoding="utf-8") as f:
+            #     for item in high_dep_tokens:
+            #         f.write(f"{item}\n")
 
         
         # compute the final completion mask
@@ -812,6 +870,25 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         print(f"ORGINAL completion_mask: {valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(valid_mask == 1).sum()}")
         print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(valid_mask == 1).sum()}")
+        # selected_tokens = completion_ids * completion_mask
+        # unselected_tokens = completion_ids[~completion_mask]
+        # selected_tokens = [row[row != 0] for row in selected_tokens]
+        # unselected_tokens = [row[row != 0] for row in unselected_tokens]
+        # selected_tokens = self.processing_class.batch_decode(
+        #     selected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        # )
+        # unselected_tokens = self.processing_class.batch_decode(
+        #     unselected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        # )
+        # print("Selected Tokens:", selected_tokens)
+        # print("Unselected Tokens:", unselected_tokens)
+        # # 以追加模式打开，encoding 根据需要指定
+        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/selected_tokens.txt', "a", encoding="utf-8") as f:
+        #     for item in selected_tokens:
+        #         f.write(f"{item}\n")
+        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/unselected_tokens.txt', "a", encoding="utf-8") as f:
+        #     for item in unselected_tokens:
+        #         f.write(f"{item}\n")
 
         with torch.inference_mode():
             try:
@@ -932,7 +1009,12 @@ class Qwen2VLGRPOTrainer(Trainer):
         if final_weights is not None:
             per_token_loss = per_token_loss * final_weights
 
-        loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        if self.tw_grpo == 1:
+            token_weights = compute_token_importance_kl_logs_uniform(per_token_logits, completion_mask, completion_ids, self.num_generations, max_weight=1.7)
+            weighted_loss = per_token_loss * token_weights
+            loss = (weighted_loss * completion_mask).sum() / completion_mask.sum()
+        else:
+            loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
 
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
         self._metrics["completion_length"].append(completion_length)
@@ -1035,3 +1117,56 @@ class Qwen2VLGRPOTrainer(Trainer):
         )
 
         model_card.save(os.path.join(self.args.output_dir, "README.md"))
+
+
+def compute_token_importance_kl_logs_uniform(per_logps, completion_mask, completion_ids, num_generations, max_weight=1.5):
+    # Basic dimension checks
+    if not isinstance(per_logps, torch.Tensor) or per_logps.ndim != 3:
+        return torch.ones_like(per_logps[..., 0])
+        
+    total_size, token_length, vocab_size = per_logps.size()
+    if total_size % num_generations != 0:
+        return torch.ones_like(per_logps[..., 0])
+        
+    batch_size = total_size // num_generations
+    
+    # Reshape tensors for group-wise computation
+    grouped_logps = per_logps.view(batch_size, num_generations, token_length, vocab_size)
+    grouped_masks = completion_mask.view(batch_size, num_generations, token_length)
+    grouped_masks = grouped_masks.unsqueeze(-1)  # (batch_size, num_generations, token_length, 1)
+    
+    # Create uniform distribution for masked positions (log space)
+    uniform_logps = torch.full_like(grouped_logps, -math.log(vocab_size))
+    
+    # Set logps to uniform distribution for positions beyond sequence length
+    masked_logps = torch.where(grouped_masks == 1, grouped_logps, uniform_logps)
+    
+    # Calculate mean distribution for each token position
+    mean_logps = masked_logps.mean(dim=1, keepdim=True)  # (batch_size, 1, token_length, vocab_size)
+    
+    # Calculate KL divergence between each sequence and the mean
+    diff = mean_logps - masked_logps
+    diff = torch.clamp(diff, min=-11.0, max=11.0)
+    token_kl = (torch.exp(diff) - diff - 1).sum(dim=-1)
+    token_kl = token_kl.mean(dim=1)
+    
+    # Apply min-max normalization to KL divergence
+    kl_min = token_kl.min(dim=1, keepdim=True)[0]
+    kl_max = token_kl.max(dim=1, keepdim=True)[0]
+    normalized_kl = (token_kl - kl_min) / (kl_max - kl_min + 1e-8)
+    
+    # Map normalized KL to weights range [1.0, max_weight]
+    token_weights = 1.0 + (max_weight - 1.0) * normalized_kl
+    # Repeat weights for each generation
+    token_weights = token_weights.repeat_interleave(num_generations, dim=0)
+    
+    # Apply the completion mask to ensure consistency
+    token_weights = token_weights * completion_mask
+
+    # log token_weights
+    # for per_logps, completion_id in zip(per_logps, completion_ids):
+    #     # token_logger.log(f"per_token_logp: {per_logps}")
+    #     token_logger.log(f"completion_id: {completion_id}")
+    # token_logger.log(f"token_weights: {normalized_kl}")
+    
+    return token_weights

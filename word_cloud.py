@@ -43,7 +43,8 @@ def replace_partial_word(text, word, ratio=0.5):
 
 
 # 替换为您的文件路径
-file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/combo_tokens.txt'
+file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/high_temp_dep_tokens.txt'
+# file_path = '/Users/bytedance/Desktop/WangZy/videoR1_dev/video-R1-Live/unselected_tokens.txt'
 
 # 读取文本
 with open(file_path, 'r', encoding='utf-8') as f:
@@ -61,18 +62,27 @@ with open(file_path, 'r', encoding='utf-8') as f:
 # ]
 # word_freq = Counter(tokens)
 
-text = replace_partial_word(text,'person',ratio=0.5)
+text = replace_partial_word(text,'person',ratio=0.8)
 text = replace_partial_word(text,'video',ratio=0.5)
 text = replace_partial_word(text,'First',ratio=0.5)
+text = replace_partial_word(text,'let',ratio=0.9)
+text = replace_partial_word(text,'appear',ratio=1)
+text = replace_partial_word(text,'appears',ratio=1)
+text = replace_partial_word(text,'Seem',ratio=0.9)
+text = replace_partial_word(text,'seem',ratio=1)
+text = replace_partial_word(text,'Wait',ratio=1)
+text = replace_partial_word(text,'seems',ratio=0.95)
+text = replace_partial_word(text,'S',ratio=0.8)
 text = replace_partial_word(text,'now',ratio=0.3)
+text = replace_partial_word(text,'Oh',ratio=0.7)
 
 # 生成词云
-wc = WordCloud(width=800, height=600,colormap='Set2',background_color='white').generate(text)
+wc = WordCloud(width=1200, height=600,colormap='Set2_r',background_color='white').generate(text)
 
 # unselected token
 # wc = WordCloud(
-#     width=800,
-#     height=600,
+#     width=1400,
+#     height=800,
 #     background_color='white',
 #     colormap='Greys',
 #     collocations=False,         # 不合并常见词对
@@ -82,9 +92,9 @@ wc = WordCloud(width=800, height=600,colormap='Set2',background_color='white').g
 # ).generate_from_frequencies(word_freq)
 
 # 显示词云
-plt.figure(figsize=(15, 7.5))
+plt.figure(figsize=(8, 4))
 plt.imshow(wc, interpolation='bilinear')
 plt.axis('off')
 plt.tight_layout()
-plt.savefig("wordcloudSelected.pdf", format='pdf')  # 或 .eps
+plt.savefig("wordcloudTempo.pdf", format='pdf')  # 或 .eps
 plt.show()
