@@ -16,9 +16,13 @@ temporal_vals = [temporal[pos] for pos in core_pos]
 # 设置样式
 width = 0.25
 
-colors = ['#49A3C6', '#FFB477', '#9C7CC1']
-colors = ['#6B7C93', '#E0A458', '#A88FB9']
 colors = ['#6B7C93', '#8BAAAD', '#A88FB9']
+colors = ['#8C9BAF', '#A8C3C1', '#C1A8CC']
+colors = ['#A1B4CC', '#B9D4D0', '#D2B6DD']
+colors = ['#91A6C0', '#A2C2BD', '#C6A2D0']
+colors = ['#7FA7D6', '#8DC9C3', '#BA8EDB']
+
+
 
 # 创建图表
 plt.figure(figsize=(8, 4))

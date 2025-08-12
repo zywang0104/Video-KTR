@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # 设置现代配色和样式
-colors = ['#6A8EAE', '#8FC1A9', '#FF8C87']
+colors = ['#6A8EAE', '#8FC1A9', '#FF8C87','#F0C66E']
 plt.style.use("seaborn-v0_8-darkgrid")
 
 # 定义标签
@@ -18,7 +18,8 @@ angles += angles[:1]
 values = {
     "Vanilla-GRPO": [34.5,35.9,51.7, 43.8, 27.9,42.5,34.5],
     "T-GRPO": [ 37.6,36.3,54.4, 45.7, 24.5,44.5,34.6],
-    "Video-KTR": [35.6,40.7,55.8, 45.3, 27.8,49,37]
+    "Video-KTR": [35.6,40.7,55.8, 45.3, 27.7,49,37],
+    'TW-GRPO': [34.5,37.4,55.1,44.6,27.8,37.5,36.8]
 }
 for key in values:
     values[key] += values[key][:1]

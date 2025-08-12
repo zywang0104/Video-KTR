@@ -631,10 +631,9 @@ class Qwen2VLGRPOTrainer(Trainer):
         
         try:
             per_token_logps, _, per_token_logits = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
-            token_entropies = self.compute_token_entropy(per_token_logits)
             per_token_logps = per_token_logps[:, prompt_length - 1 :]
-            token_entropies = token_entropies[:, prompt_length - 1 :]
             per_token_logits = per_token_logits[:, prompt_length - 1 :]
+            token_entropies = self.compute_token_entropy(per_token_logits)
             with torch.no_grad():
                 if 'img_dependent' in self.exp_type:
                     masked_logps, _, masked_logits = self._get_per_token_logps(model, prompt_completion_ids, **masked_inputs)
