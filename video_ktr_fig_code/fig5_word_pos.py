@@ -21,6 +21,7 @@ colors = ['#8C9BAF', '#A8C3C1', '#C1A8CC']
 colors = ['#A1B4CC', '#B9D4D0', '#D2B6DD']
 colors = ['#91A6C0', '#A2C2BD', '#C6A2D0']
 colors = ['#7FA7D6', '#8DC9C3', '#BA8EDB']
+colors = ['#4A90C2', '#5AA05A', '#9E9AC8']
 
 
 

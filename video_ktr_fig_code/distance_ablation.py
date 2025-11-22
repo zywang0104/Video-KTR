@@ -29,7 +29,7 @@ ax.set_xlabel("Video Reasoning Benchmark Average Score",fontsize=14)
 # 翻转 y 轴（让分数高的在上）
 ax.invert_yaxis()
 y_pos = range(len(methods))
-bars = ax.barh(y=y_pos, width=scores, color=colors, height=0.35)
+bars = ax.barh(y=y_pos, width=scores, color=colors, height=0.4)
 ax.set_yticks(y_pos)
 ax.set_yticklabels(methods, fontsize=11)
 ax.set_yticklabels(

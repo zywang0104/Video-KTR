@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 from matplotlib_venn import venn3
 import re
 colors_dict = {
-    '100': '#4E79A7',   # Visual-only（蓝色）
-    '010': '#3B7D46',   # Entropy-only（深绿色）
-    '001': '#7A5C96',   # Temporal-only（深紫色）
+    '100': '#4A90C2',   # Visual-only（稍暗蓝）
+    '010': '#5AA05A',   # Entropy-only（稍暗绿）
+    '001': '#9E9AC8',   # Temporal-only（亮紫）
 
-    '110': '#457B6B',   # Visual ∩ Entropy → 深蓝绿融合
-    '101': '#5E4A78',   # Visual ∩ Temporal → 深蓝紫融合
-    '011': '#4F6A5F',   # Entropy ∩ Temporal → 深绿紫融合
-    '111': '#888888'    # All three → 中性灰
+    '110': '#4F9A87',   # Visual ∩ Entropy → 蓝绿混合
+    '101': '#8E7BAE',   # Visual ∩ Temporal → 蓝紫混合
+    '011': '#6DAF75',   # Entropy ∩ Temporal → 绿紫混合
+    '111': '#A9A9A9'    # All three → 中性灰
 }
 
 
