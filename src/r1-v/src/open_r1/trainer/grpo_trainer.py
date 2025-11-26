@@ -13,15 +13,13 @@
 # limitations under the License.
 
 import os
+import copy
 import textwrap
 from collections import defaultdict
 from typing import Any, Callable, Optional, Union
-import random
 import math
-import numpy as np 
 
 import torch
-import torch.utils.data
 import torch.nn.functional as F
 import transformers
 from datasets import Dataset, IterableDataset
@@ -29,8 +27,6 @@ from packaging import version
 from torch.distributions.normal import Normal
 from transformers import (
     AriaForConditionalGeneration,
-    AriaProcessor,
-    AutoModelForCausalLM,
     AutoModelForSequenceClassification,
     AutoProcessor,
     AutoTokenizer,
@@ -51,8 +47,7 @@ from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_f
 from trl.trainer.grpo_config import GRPOConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url
 
-
-import copy
+from qwen_vl_utils import process_vision_info
 
 
 if is_peft_available():
@@ -173,15 +168,13 @@ class Qwen2VLGRPOTrainer(Trainer):
             model_name = model if isinstance(model, str) else model.config._name_or_path
             model_name = model_name.split("/")[-1]
             args = GRPOConfig(f"{model_name}-GRPO")
-        
-        self.frame_num = script_args.frame_num
-        self.soft_k = script_args.soft_k
-        self.soft_gamma = script_args.soft_gamma
-        self.exp_type = script_args.exp_type
-        self.tw_grpo = script_args.tw_grpo
+
+        self.video_ktr = script_args.video_ktr
         self.entropy_ratio = script_args.entropy_ratio
-        self.dep_ratio = script_args.dep_ratio
-        self.temp_dep_ratio = script_args.temp_dep_ratio
+        self.visual_ratio = script_args.visual_ratio
+        self.temporal_ratio = script_args.temporal_ratio
+        self.output_selected_token = script_args.output_selected_token
+        self.temporal = script_args.temporal
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(local_rank)
         device = torch.device(f"cuda:{local_rank}")
@@ -251,7 +244,7 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         # Processing class
         if processing_class is None:
-            if "Qwen2-VL" in model_id or "Qwen2.5-VL" in model_id or "Aria" in model_id or True:
+            if "Qwen2-VL" in model_id or "Qwen2.5-VL" in model_id or "Aria" in model_id:
                 processing_class = AutoProcessor.from_pretrained(model_id)
                 pad_token_id = processing_class.tokenizer.pad_token_id
                 processing_class.pad_token_id = pad_token_id
@@ -302,7 +295,6 @@ class Qwen2VLGRPOTrainer(Trainer):
         self.max_prompt_length = args.max_prompt_length
         self.max_completion_length = args.max_completion_length  # = |o_i| in the GRPO paper
         self.num_generations = args.num_generations  # = G in the GRPO paper
-        self.temporal = script_args.temporal
         self.generation_config = GenerationConfig(
             max_new_tokens=self.max_completion_length,
             do_sample=True,
@@ -376,67 +368,16 @@ class Qwen2VLGRPOTrainer(Trainer):
         # Instead, we set them to the columns expected by the `training_step` method, hence the override.
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
-
-    def compute_tokenwise_kl_distance(self, logits_p, logits_q, eps=1e-8):
-        with torch.no_grad():
-            log_p = F.log_softmax(logits_p, dim=-1)
-            log_q = F.log_softmax(logits_q, dim=-1)
-            p = log_p.exp()
-            kl = torch.sum(p * (log_p - log_q), dim=-1)
-        return kl
-
-    def compute_tokenwise_jsd_distance(self, logits_p, logits_q, eps=1e-8):
-        with torch.no_grad():
-            p = F.softmax(logits_p, dim=-1)
-            q = F.softmax(logits_q, dim=-1)
-            m = 0.5 * (p + q)
-            log_p = torch.log(p + eps)
-            log_q = torch.log(q + eps)
-            log_m = torch.log(m + eps)
-            kl_pm = torch.sum(p * (log_p - log_m), dim=-1)
-            kl_qm = torch.sum(q * (log_q - log_m), dim=-1)
-            jsd = 0.5 * (kl_pm + kl_qm)
-        return jsd
-
-    def compute_tokenwise_l1_distance(self, logits_p, logits_q):
-        with torch.no_grad():
-            p = F.softmax(logits_p, dim=-1)
-            q = F.softmax(logits_q, dim=-1)
-            l1 = torch.sum(torch.abs(p - q), dim=-1)
-        return l1
-
-    def compute_tokenwise_l2_distance(self, logits_p, logits_q):
-        with torch.no_grad():
-            p = F.softmax(logits_p, dim=-1)
-            q = F.softmax(logits_q, dim=-1)
-            l2 = torch.sqrt(torch.sum((p - q) ** 2, dim=-1))
-        return l2
-
-    def compute_tokenwise_cosine_similarity(self, logits_p, logits_q):
-        with torch.no_grad():
-            p_norm = F.normalize(logits_p, p=2, dim=-1)
-            q_norm = F.normalize(logits_q, p=2, dim=-1)
-            cosine = torch.sum(p_norm * q_norm, dim=-1)
-        return cosine
-
-    def compute_tokenwise_hellinger_distance(self, logits_p, logits_q, eps=1e-8):
-        with torch.no_grad():
-            p = torch.sqrt(F.softmax(logits_p, dim=-1) + eps)
-            q = torch.sqrt(F.softmax(logits_q, dim=-1) + eps)
-            diff_squared = (p - q) ** 2
-            sum_diff = torch.sum(diff_squared, dim=-1)
-            hellinger = (1.0 / torch.sqrt(torch.tensor(2.0))) * torch.sqrt(sum_diff)
-        return hellinger
     
-    def keep_token_by_ratio(self, scores, valid_mask):
-        valid_dep_scores = scores[valid_mask.bool()] 
-        flat_dep_scores = valid_dep_scores.contiguous().view(-1).float()
-        flat_dep_scores = flat_dep_scores[torch.isfinite(flat_dep_scores)]
-        threshold = torch.quantile(flat_dep_scores, 1 - self.dep_ratio)
+    def keep_token_by_ratio(self, scores, valid_mask, ratio):
+        valid_scores = scores[valid_mask.bool()] 
+        flat_scores = valid_scores.contiguous().view(-1).float()
+        flat_scores = flat_scores[torch.isfinite(flat_scores)]
+        threshold = torch.quantile(flat_scores, 1 - ratio)
         scores[~(valid_mask.bool())] = float('-inf')
-        dep_mask = (scores >= threshold).float()
-        dep_completion_mask = valid_mask * dep_mask.bool()
-        return dep_completion_mask
+        mask = (scores >= threshold).float()
+        output_mask = valid_mask * mask.bool()
+        return output_mask
 
     def compute_token_entropy(self, logits):
         with torch.no_grad():
@@ -488,10 +429,6 @@ class Qwen2VLGRPOTrainer(Trainer):
         elif inputs[0]['data_type'] == 'video':
             input_copy[0]['content'][0]['video'] = os.getcwd() + "/Video-R1-data" + inputs[0]['path'][1:] 
         
-        if self.frame_num == 32:
-            from qwen_vl_utils import process_vision_info_32frames as process_vision_info
-        else:
-            from qwen_vl_utils import train_process_vision_info as process_vision_info
         try:
             image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
@@ -524,27 +461,10 @@ class Qwen2VLGRPOTrainer(Trainer):
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
-
-        if (self.temporal or 'temp_dep' in self.exp_type) and video_inputs:
-            if 'reverse' in self.exp_type:
-                indices = torch.arange(video_inputs[0].size(0) - 1, -1, -1)
-                shuffled_video_inputs = [video_inputs[0][indices]]
-            elif 'partial_shuffle' in self.exp_type:
-                T = video_inputs[0].size(0)  # 总帧数
-                seg_len = 4  # 每段长度（你可调节）
-                num_segs = T // seg_len
-                video = video_inputs[0][:num_segs * seg_len]
-                segments = video.view(num_segs, seg_len, *video.shape[1:])
-                perm = torch.randperm(num_segs)
-                shuffled_segments = segments[perm]
-                shuffled_video = shuffled_segments.view(-1, *video.shape[1:])
-                if T % seg_len != 0:
-                    tail = video_inputs[0][num_segs * seg_len:]
-                    shuffled_video = torch.cat([shuffled_video, tail], dim=0)
-                shuffled_video_inputs = [shuffled_video]
-            else:
-                indices = torch.randperm(video_inputs[0].size(0))
-                shuffled_video_inputs = [video_inputs[0][indices]]
+        if (self.temporal or self.video_ktr) and video_inputs:
+            # process random shuffle input
+            indices = torch.randperm(video_inputs[0].size(0))
+            shuffled_video_inputs = [video_inputs[0][indices]]
             shuffled_prompt_inputs = self.processing_class(
                 text=copy.deepcopy(prompts_text),
                 images=image_inputs,
@@ -559,7 +479,6 @@ class Qwen2VLGRPOTrainer(Trainer):
             if self.max_prompt_length is not None:
                 shuffled_prompt_ids = shuffled_prompt_ids[:, -self.max_prompt_length :]
                 shuffled_prompt_mask = shuffled_prompt_mask[:, -self.max_prompt_length :]
-        
         
         # Generate completions
         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
@@ -601,33 +520,26 @@ class Qwen2VLGRPOTrainer(Trainer):
         
         prompt_inputs.pop("input_ids")
         prompt_inputs.pop("attention_mask")
-        if 'img_dependent' in self.exp_type:
+        if self.video_ktr:
             masked_inputs = copy.deepcopy(prompt_inputs)
             masked_inputs['input_ids'] = prompt_completion_ids
             masked_inputs['attention_mask'] = full_attention
             masked_inputs.pop("input_ids")
             
+            # Hack For Qwen-2.5-VL
             img_id = model.config.get('image_token_id', 151655)
             vid_id = model.config.get('image_token_id', 151656)
 
             vis_pos = (prompt_completion_ids == img_id) | (prompt_completion_ids == vid_id)
-            if 'partial' in self.exp_type:
-                vis_indices = vis_pos.nonzero(as_tuple=False)  # [N, 2]
-                num_to_mask = vis_indices.size(0) // 2
-                selected = vis_indices[torch.randperm(vis_indices.size(0))[:num_to_mask]]
-                partial_mask = torch.zeros_like(masked_inputs["attention_mask"], dtype=torch.bool)
-                partial_mask[selected[:, 0], selected[:, 1]] = True  # 只对选中的位置赋值为 True
-                masked_inputs["attention_mask"][partial_mask] = 0
-            else:
-                masked_inputs["attention_mask"][vis_pos] = 0
+            masked_inputs["attention_mask"][vis_pos] = 0
         
-        if 'temp_dep' in self.exp_type and inputs[0]['data_type'] == 'video':
-            shuffled_prompt_inputs["pixel_values_videos"] = shuffled_prompt_inputs["pixel_values_videos"].repeat(len(prompt_completion_ids), 1).to(device)
-            shuffled_prompt_inputs["video_grid_thw"] = shuffled_prompt_inputs["video_grid_thw"].repeat(len(prompt_completion_ids), 1).to(device)
-            if 'second_per_grid_ts' in shuffled_prompt_inputs:
-                del shuffled_prompt_inputs["second_per_grid_ts"]
-            shuffled_prompt_inputs.pop("input_ids")
-            shuffled_prompt_inputs.pop('attention_mask')
+            if inputs[0]['data_type'] == 'video':
+                shuffled_prompt_inputs["pixel_values_videos"] = shuffled_prompt_inputs["pixel_values_videos"].repeat(len(prompt_completion_ids), 1).to(device)
+                shuffled_prompt_inputs["video_grid_thw"] = shuffled_prompt_inputs["video_grid_thw"].repeat(len(prompt_completion_ids), 1).to(device)
+                if 'second_per_grid_ts' in shuffled_prompt_inputs:
+                    del shuffled_prompt_inputs["second_per_grid_ts"]
+                shuffled_prompt_inputs.pop("input_ids")
+                shuffled_prompt_inputs.pop('attention_mask')
         
         try:
             per_token_logps, _, per_token_logits = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
@@ -635,37 +547,29 @@ class Qwen2VLGRPOTrainer(Trainer):
             per_token_logits = per_token_logits[:, prompt_length - 1 :]
             token_entropies = self.compute_token_entropy(per_token_logits)
             with torch.no_grad():
-                if 'img_dependent' in self.exp_type:
+                if self.video_ktr:
                     masked_logps, _, masked_logits = self._get_per_token_logps(model, prompt_completion_ids, **masked_inputs)
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     masked_logits = masked_logits[:, prompt_length - 1:]
-                else:
-                    # dummy call to ensure NCCL sync
-                    _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids, need_entropy=False, **prompt_inputs)
-
-                if 'temp_dep' in self.exp_type:
                     if inputs[0]['data_type'] == 'video':
                         temp_dep_logps, _, temp_dep_logits = self._get_per_token_logps(model, prompt_completion_ids, **shuffled_prompt_inputs)
                         temp_dep_logps = temp_dep_logps[:, prompt_length - 1:]
                         temp_dep_logits = temp_dep_logits[:, prompt_length - 1:]
                     else:
-                         _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False, **prompt_inputs)
+                        _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False, **prompt_inputs)
                 else:
-                     _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False, **prompt_inputs)
+                    # dummy call to ensure NCCL sync
+                    _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids, need_entropy=False, **prompt_inputs)
 
         except Exception as e:
             print(f"Error computing per_token_logps: {e}. Setting output to zero.")
             per_token_logps, token_entropies, per_token_logits = self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
+            # dummy call to ensure NCCL sync
             with torch.no_grad():
-                if 'img_dependent' in self.exp_type:
+                if self.video_ktr:
                     masked_logps, _, masked_logits = self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                     masked_logps = masked_logps[:, prompt_length - 1:]
                     masked_logits = masked_logits[:, prompt_length - 1:]
-                else:
-                    # dummy call to ensure NCCL sync
-                    _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
-
-                if 'temp_dep' in self.exp_type:
                     if inputs[0]['data_type'] == 'video':
                         temp_dep_logps, _, temp_dep_logits = self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                         temp_dep_logps = temp_dep_logps[:, prompt_length - 1:]
@@ -673,119 +577,26 @@ class Qwen2VLGRPOTrainer(Trainer):
                     else:
                          _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
                 else:
-                     _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
+                    _, _, _ =  self._get_per_token_logps(model, prompt_completion_ids,need_entropy=False)
 
-        valid_mask = copy.deepcopy(completion_mask)
+        visual_valid_mask = copy.deepcopy(completion_mask)
         entropy_valid_mask = copy.deepcopy(completion_mask)
-        temp_dep_valid_mask = copy.deepcopy(completion_mask)
-        dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask = None, None, None
-        dep_weight, entropy_weight, temp_dep_weight = None, None, None
+        temporal_valid_mask = copy.deepcopy(completion_mask)
+        visual_completion_mask, entropy_completion_mask, temporal_completion_mask = None, None, None
 
-        def compute_rank_weights(scores, k=20, gamma=1.5):
-            batch_size, seq_len = scores.shape
-            flat_scores = scores.contiguous().view(-1).float()
-            sorted_indices = torch.argsort(flat_scores, descending=True)
-            ranks = torch.empty_like(sorted_indices)
-            ranks[sorted_indices] = torch.arange(len(flat_scores), device=scores.device)
-            normalized_ranks = ranks.float() / (len(flat_scores) - 1)
-            weights = 1 + gamma * (torch.sigmoid(k * (0.5 - normalized_ranks)) - 0.5)
-            weights = weights.view(batch_size, seq_len)
-            return weights
+        if self.video_ktr:
+            entropy_completion_mask = self.keep_token_by_ratio(token_entropies, entropy_valid_mask, self.entropy_ratio)
 
-        def piecewise_normal_mapping(scores):
-            batch_size, seq_len = scores.shape
-            flat_scores = scores.contiguous().view(-1).float()
+            with torch.no_grad():
+                dep_scores = per_token_logps - masked_logps
+            visual_completion_mask = self.keep_token_by_ratio(dep_scores, visual_valid_mask, self.visual_ratio)
 
-            # 计算 percentiles（排序位置除以 N-1）
-            sorted_idx = flat_scores.argsort()
-            ranks = torch.zeros_like(sorted_idx, dtype=torch.float32, device=flat_scores.device)
-            ranks[sorted_idx] = torch.arange(len(flat_scores), device=flat_scores.device, dtype=torch.float32)
-            p = ranks / (len(flat_scores) - 1)
-
-            # 正态分布常数
-            dist = Normal(0, 1)
-            cdf_neg2 = dist.cdf(torch.tensor(-2.0, device=flat_scores.device))
-            cdf_neg1 = dist.cdf(torch.tensor(-1.0, device=flat_scores.device))
-            cdf_pos1 = dist.cdf(torch.tensor(1.0, device=flat_scores.device))
-            cdf_pos2 = dist.cdf(torch.tensor(2.0, device=flat_scores.device))
-
-            result = torch.zeros_like(p, dtype=torch.float32, device=flat_scores.device)
-
-            # 区间1: 0~0.2 -> [-2, -1]
-            mask1 = p <= 0.2
-            if mask1.any():
-                p1 = p[mask1] / 0.2
-                result[mask1] = dist.icdf(cdf_neg2 + (cdf_neg1 - cdf_neg2) * p1)
-
-            # 区间2: 0.2~0.8 -> [-1, 1]
-            mask2 = (p > 0.2) & (p <= 0.8)
-            if mask2.any():
-                p2 = (p[mask2] - 0.2) / 0.6
-                result[mask2] = dist.icdf(cdf_neg1 + (cdf_pos1 - cdf_neg1) * p2)
-
-            # 区间3: 0.8~1.0 -> [1, 2]
-            mask3 = p > 0.8
-            if mask3.any():
-                p3 = (p[mask3] - 0.8) / 0.2
-                result[mask3] = dist.icdf(cdf_pos1 + (cdf_pos2 - cdf_pos1) * p3)
-
-            # reshape 回原始形状
-            result = result.view(batch_size, seq_len)
-
-            # 替换 nan 和负数为 0
-            result[torch.isnan(result)] = 0
-            result[result < 0] = 0
-
-            return result
-            
-        if 'img_dependent' in self.exp_type:
-            if any(key in self.exp_type for key in ['kl', 'l1', 'jsd', 'l2', 'cos_sim','hellinger']):
-                if 'kl' in self.exp_type:
-                    dep_scores = self.compute_tokenwise_kl_distance(per_token_logits, masked_logits)
-                elif 'l1' in self.exp_type:
-                    dep_scores = self.compute_tokenwise_l1_distance(per_token_logits, masked_logits)
-                elif 'l2' in self.exp_type:
-                    dep_scores = self.compute_tokenwise_l2_distance(per_token_logits, masked_logits)
-                elif 'cos_sim' in self.exp_type:
-                    dep_scores = self.compute_tokenwise_cosine_similarity(per_token_logits, masked_logits)
-                elif 'hellinger' in self.exp_type:
-                    dep_scores = self.compute_tokenwise_hellinger_distance(per_token_logits, masked_logits)
-            else:
+            if inputs[0]['data_type'] == 'video':
                 with torch.no_grad():
-                    dep_scores = per_token_logps - masked_logps
-            if 'soft' in self.exp_type:
-                dep_scores[~(valid_mask.bool())] = float('-inf')
-                dep_weight = compute_rank_weights(dep_scores, k=self.soft_k, gamma=self.soft_gamma)
-            elif 'dist' in self.exp_type:
-                dep_scores[~(valid_mask.bool())] = float('-inf')
-                dep_weight = piecewise_normal_mapping(dep_scores)
-            dep_completion_mask = self.keep_token_by_ratio(dep_scores, valid_mask)
-            # print(f"""Dep threshold: {threshold} 
-            #         original data shape: {dep_scores.shape},
-            #         dep selected data shape: {(dep_mask == 1).sum(dim=1)},
-            #         dep selected token num: {(dep_mask == 1).sum()},
-            #         current completion_mask: {dep_completion_mask.sum(dim=1)}""")
+                    temp_dep_scores = per_token_logps - temp_dep_logps
+                temporal_completion_mask = self.keep_token_by_ratio(temp_dep_scores, temporal_valid_mask, self.temporal_ratio)
 
-        if 'entropy' in self.exp_type:
-            if 'soft' in self.exp_type:
-                token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
-                entropy_weight = compute_rank_weights(token_entropies, k=self.soft_k, gamma=self.soft_gamma)
-            elif 'dist' in self.exp_type:
-                token_entropies[~(valid_mask.bool())] = float('-inf')
-                entropy_weight = piecewise_normal_mapping(token_entropies)
-            else:
-                valid_entropy = token_entropies[entropy_valid_mask.bool()] 
-                if valid_entropy.numel() == 0:
-                    raise ValueError("All entries in valid_entropy are NaN or Inf!")
-
-                flat_entropy = valid_entropy.contiguous().view(-1).float()
-                flat_entropy = flat_entropy[torch.isfinite(flat_entropy)]   # 过滤掉 nan 和 inf
-                threshold = torch.quantile(flat_entropy, 1 - self.entropy_ratio)
-
-                token_entropies[~(entropy_valid_mask.bool())] = float('-inf')
-                entropy_mask = (token_entropies >= threshold).float()  # (bs, seq_len)
-                entropy_completion_mask = (entropy_valid_mask * entropy_mask).bool()
-                
+            # Example: If you want to record the selected tokens, enable the codes below:
             # print(f"""Entropy threshold: {threshold} 
             #         original data shape: {token_entropies.shape},
             #         entropy selected data shape: {(entropy_mask == 1).sum(dim=1)},
@@ -794,101 +605,21 @@ class Qwen2VLGRPOTrainer(Trainer):
             
             # batch_tokens = completion_ids * completion_mask
             # batch_tokens = [row[row != 0] for row in batch_tokens]
-            # high_dep_tokens = self.processing_class.batch_decode(
-            #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            # )
+            # high_dep_tokens = self.processing_class.batch_decode(batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False)
             # print("High-Entropy:", high_dep_tokens)
-            # # 以追加模式打开，encoding 根据需要指定
-            # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/high_entropy_tokens_batch_level.txt', "a", encoding="utf-8") as f:
-            #     for item in high_dep_tokens:
-            #         f.write(f"{item}\n")
-        if 'temp_dep' in self.exp_type and inputs[0]['data_type'] == 'video':
-            if any(key in self.exp_type for key in ['kl', 'l1', 'jsd', 'l2', 'cos_sim','hellinger']):
-                if 'kl' in self.exp_type:
-                    temp_dep_scores = self.compute_tokenwise_kl_distance(per_token_logits, temp_dep_logits)
-                elif 'l1' in self.exp_type:
-                    temp_dep_scores = self.compute_tokenwise_l1_distance(per_token_logits, temp_dep_logits)
-                elif 'l2' in self.exp_type:
-                    temp_dep_scores = self.compute_tokenwise_l2_distance(per_token_logits, temp_dep_logits)
-                elif 'cos_sim' in self.exp_type:
-                    temp_dep_scores = self.compute_tokenwise_cosine_similarity(per_token_logits, temp_dep_logits)
-                elif 'hellinger' in self.exp_type:
-                    temp_dep_scores = self.compute_tokenwise_hellinger_distance(per_token_logits, temp_dep_logits)
-            else:
-                with torch.no_grad():
-                    temp_dep_scores = per_token_logps - temp_dep_logps
-            if 'soft' in self.exp_type:
-                temp_dep_scores[~(temp_dep_valid_mask.bool())] = float('-inf')
-                temp_dep_weight = compute_rank_weights(temp_dep_scores, k=self.soft_k, gamma=self.soft_gamma)
-            elif 'dist' in self.exp_type:
-                temp_dep_scores[~(valid_mask.bool())] = float('-inf')
-                temp_dep_weight = piecewise_normal_mapping(temp_dep_scores)
-            temp_dep_completion_mask = self.keep_token_by_ratio(temp_dep_scores, temp_dep_valid_mask)
-                
-            # print(f"""Temp dep threshold: {threshold} 
-            #         original data shape: {temp_dep_scores.shape},
-            #         temp dep selected data shape: {(temp_dep_mask == 1).sum(dim=1)},
-            #         temp dep selected token num: {(temp_dep_mask == 1).sum()},
-            #         current completion_mask: {temp_dep_completion_mask.sum(dim=1)}""")
-
-            # batch_tokens = completion_ids * temp_dep_completion_mask
-            # batch_tokens = [row[row != 0] for row in batch_tokens]
-            # high_dep_tokens = self.processing_class.batch_decode(
-            #     batch_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            # )
-            # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/high_temp_dep_tokens.txt', "a", encoding="utf-8") as f:
+            # with open('your/record/file.txt', "a", encoding="utf-8") as f:
             #     for item in high_dep_tokens:
             #         f.write(f"{item}\n")
 
-        
         # compute the final completion mask
-        final_weights = None
-        if ('soft' in self.exp_type or 'dist' in self.exp_type) and 'max' not in self.exp_type:
-            valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
-            if valid_weights:
-                final_weights = valid_weights[0]
-                for t in valid_weights[1:]:
-                    final_weights = final_weights + t
-                final_weights = final_weights / len(valid_weights)
-        if ('soft' in self.exp_type or 'dist' in self.exp_type) and 'max' in self.exp_type:
-            valid_weights = [t for t in [dep_weight, entropy_weight, temp_dep_weight] if t is not None]
-            if len(valid_weights) == 1:
-                final_weights = valid_weights[0]
-            elif len(valid_weights) == 0:
-                final_weights = None
-            else:
-                valid_weights = torch.stack(valid_weights)
-                final_weights, _ = torch.max(valid_weights, dim=0)
-
-        else:
-            valid_masks = [t for t in [dep_completion_mask, entropy_completion_mask, temp_dep_completion_mask] if t is not None]
-            if valid_masks:
-                completion_mask = valid_masks[0]
-                for t in valid_masks[1:]:
-                    completion_mask = torch.logical_or(completion_mask, t)
-        
+        valid_masks = [t for t in [visual_completion_mask, entropy_completion_mask, temporal_completion_mask] if t is not None]
+        if valid_masks:
+            completion_mask = valid_masks[0]
+            for t in valid_masks[1:]:
+                completion_mask = torch.logical_or(completion_mask, t)
 
         print(f"ORGINAL completion_mask: {valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(valid_mask == 1).sum()}")
         print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(valid_mask == 1).sum()}")
-        # selected_tokens = completion_ids * completion_mask
-        # unselected_tokens = completion_ids[~completion_mask]
-        # selected_tokens = [row[row != 0] for row in selected_tokens]
-        # unselected_tokens = [row[row != 0] for row in unselected_tokens]
-        # selected_tokens = self.processing_class.batch_decode(
-        #     selected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        # )
-        # unselected_tokens = self.processing_class.batch_decode(
-        #     unselected_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        # )
-        # print("Selected Tokens:", selected_tokens)
-        # print("Unselected Tokens:", unselected_tokens)
-        # # 以追加模式打开，encoding 根据需要指定
-        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/selected_tokens.txt', "a", encoding="utf-8") as f:
-        #     for item in selected_tokens:
-        #         f.write(f"{item}\n")
-        # with open('/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/display_tokens/unselected_tokens.txt', "a", encoding="utf-8") as f:
-        #     for item in unselected_tokens:
-        #         f.write(f"{item}\n")
 
         with torch.inference_mode():
             try:
@@ -908,6 +639,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         x_clamped = torch.clamp(ref_per_token_logps - per_token_logps, min=-10, max=10)  # 限制 x 的范围
         per_token_kl = torch.exp(x_clamped) - x_clamped - 1
         
+        # T-GRPO
         if self.temporal and video_inputs:
             shuffled_completions = self.processing_class.batch_decode(shuffled_completion_ids, skip_special_tokens=True)
             if is_conversational(inputs[0]):
@@ -974,25 +706,13 @@ class Qwen2VLGRPOTrainer(Trainer):
             mask = rewards_per_func[:, 0] > 0.1
             lenth_list = completion_mask.sum(1)
             selected_indices = torch.nonzero(mask, as_tuple=True)[0].tolist()
-            #             if len(selected_indices) > 1 and len(selected_indices) < self.num_generations:
-            # if len(selected_indices) > 1:
-            #     selected_items = [(i, lenth_list[i]) for i in selected_indices]
-            #     sorted_items = sorted(selected_items, key=lambda x: x[1], reverse=True)
-            #     N = len(sorted_items)
-            #     for rank, (idx, length) in enumerate(sorted_items):
-            #         reward = 0.2 - 0.2 * (rank / N)
-            #         rewards[idx] += reward
-            #         mem_rewards[idx] = reward
-            # for idx in range(len(lenth_list)):
-            #     if lenth_list[idx] >= 512:
-            #         rewards[idx] -= 0.5
                     
             if len(selected_indices) > 1:     
                 for idx in selected_indices:
                     if 320 <= lenth_list[idx] <= 512:
                         rewards[idx] += 0.2
         
-        print(f"rewards: {rewards}")
+        print(f"{rewards=}")
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -1009,12 +729,8 @@ class Qwen2VLGRPOTrainer(Trainer):
         if final_weights is not None:
             per_token_loss = per_token_loss * final_weights
 
-        if self.tw_grpo == 1:
-            token_weights = compute_token_importance_kl_logs_uniform(per_token_logits, completion_mask, completion_ids, self.num_generations, max_weight=1.7)
-            weighted_loss = per_token_loss * token_weights
-            loss = (weighted_loss * completion_mask).sum() / completion_mask.sum()
-        else:
-            loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        sequence_losses = (per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)
+        loss = sequence_losses.mean()
 
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
         self._metrics["completion_length"].append(completion_length)
@@ -1117,56 +833,3 @@ class Qwen2VLGRPOTrainer(Trainer):
         )
 
         model_card.save(os.path.join(self.args.output_dir, "README.md"))
-
-
-def compute_token_importance_kl_logs_uniform(per_logps, completion_mask, completion_ids, num_generations, max_weight=1.5):
-    # Basic dimension checks
-    if not isinstance(per_logps, torch.Tensor) or per_logps.ndim != 3:
-        return torch.ones_like(per_logps[..., 0])
-        
-    total_size, token_length, vocab_size = per_logps.size()
-    if total_size % num_generations != 0:
-        return torch.ones_like(per_logps[..., 0])
-        
-    batch_size = total_size // num_generations
-    
-    # Reshape tensors for group-wise computation
-    grouped_logps = per_logps.view(batch_size, num_generations, token_length, vocab_size)
-    grouped_masks = completion_mask.view(batch_size, num_generations, token_length)
-    grouped_masks = grouped_masks.unsqueeze(-1)  # (batch_size, num_generations, token_length, 1)
-    
-    # Create uniform distribution for masked positions (log space)
-    uniform_logps = torch.full_like(grouped_logps, -math.log(vocab_size))
-    
-    # Set logps to uniform distribution for positions beyond sequence length
-    masked_logps = torch.where(grouped_masks == 1, grouped_logps, uniform_logps)
-    
-    # Calculate mean distribution for each token position
-    mean_logps = masked_logps.mean(dim=1, keepdim=True)  # (batch_size, 1, token_length, vocab_size)
-    
-    # Calculate KL divergence between each sequence and the mean
-    diff = mean_logps - masked_logps
-    diff = torch.clamp(diff, min=-11.0, max=11.0)
-    token_kl = (torch.exp(diff) - diff - 1).sum(dim=-1)
-    token_kl = token_kl.mean(dim=1)
-    
-    # Apply min-max normalization to KL divergence
-    kl_min = token_kl.min(dim=1, keepdim=True)[0]
-    kl_max = token_kl.max(dim=1, keepdim=True)[0]
-    normalized_kl = (token_kl - kl_min) / (kl_max - kl_min + 1e-8)
-    
-    # Map normalized KL to weights range [1.0, max_weight]
-    token_weights = 1.0 + (max_weight - 1.0) * normalized_kl
-    # Repeat weights for each generation
-    token_weights = token_weights.repeat_interleave(num_generations, dim=0)
-    
-    # Apply the completion mask to ensure consistency
-    token_weights = token_weights * completion_mask
-
-    # log token_weights
-    # for per_logps, completion_id in zip(per_logps, completion_ids):
-    #     # token_logger.log(f"per_token_logp: {per_logps}")
-    #     token_logger.log(f"completion_id: {completion_id}")
-    # token_logger.log(f"token_weights: {normalized_kl}")
-    
-    return token_weights

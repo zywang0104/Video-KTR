@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Install the packages in r1-v .
 cd src/r1-v 
 pip install -e ".[dev]"
@@ -14,7 +16,16 @@ pip install vllm==0.7.2
 pip install nltk
 pip install rouge_score
 pip install deepspeed
-pip install math_verify
 
 # fix transformers version
 # pip install git+https://github.com/huggingface/transformers.git@336dc69d63d56f232a183a3e7f52790429b871ef
+
+cd src/qwen-vl-utils
+pip install -e .[decord]
+cd ../../
+
+# fix transformers version
+# pip3 uninstall transformers
+# unzip transformers-main_.zip
+# cd transformers-main
+# python3 -m pip install .

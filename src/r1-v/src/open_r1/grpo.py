@@ -53,45 +53,33 @@ class GRPOScriptArguments(ScriptArguments):
         metadata={"help": "Minimum number of pixels for the image"},
     )
     temporal: Optional[bool] = field(
-        default=True,
+        default=False,
         metadata={"help": "whether using temporal GRPO"},
     )
     len_control: Optional[bool] = field(
         default=True,
         metadata={"help": "whether using length reward"},
     )
-    exp_type: Optional[str] = field(
-        default='normal_rft'
+    video_ktr: Optional[bool] = field(
+        default=True,
+        metadata={"help": "whether using Video-KTR-GRPO"},
     )
     entropy_ratio: Optional[float] = field(
         default=0.2,
         metadata={"help": "entropy ratio"}
     )
-    dep_ratio: Optional[float] = field(
+    visual_ratio: Optional[float] = field(
         default=0.2,
-        metadata={"help": "visual dependency ratio"}
+        metadata={"help": "visual-aware ratio"}
     )
-    temp_dep_ratio: Optional[float] = field(
+    temporal_ratio: Optional[float] = field(
         default=0.2,
-        metadata={"help": "temp dep ratio"}
+        metadata={"help": "temporal-aware ratio"}
     )
-    frame_num: Optional[int] = field(
-        default=16,
-        metadata={"help": "Number of frames for video"}
+    output_selected_token: Optional[bool] = field(
+        default=False,
+        metadata={"help": "temporal-aware ratio"}
     )
-    soft_k: Optional[float] = field(
-        default=20,
-        metadata={"help": "soft k"}
-    )
-    soft_gamma: Optional[float] = field(
-        default=1.5,
-        metadata={"help": "soft gamma"}
-    )
-    tw_grpo: Optional[float] = field(
-        default=0,
-        metadata={"help": "tw_grpo"}
-    )
-    
 
 
 
