@@ -1,11 +1,9 @@
-import os
-import torch
 from vllm import LLM, SamplingParams
 from transformers import AutoProcessor, AutoTokenizer
 from qwen_vl_utils import process_vision_info
 
 # Set model path
-model_path = "Video-R1/Video-R1-7B"
+model_path = "Video-KTR/Video-KTR-7B"
 
 # Set video path and question
 video_path = "./src/example_video/video1.mp4"

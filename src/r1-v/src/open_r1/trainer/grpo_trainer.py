@@ -618,8 +618,8 @@ class Qwen2VLGRPOTrainer(Trainer):
             for t in valid_masks[1:]:
                 completion_mask = torch.logical_or(completion_mask, t)
 
-        print(f"ORGINAL completion_mask: {valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(valid_mask == 1).sum()}")
-        print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(valid_mask == 1).sum()}")
+        print(f"ORGINAL completion_mask: {visual_valid_mask.sum(dim=1)}, ORIGINAL valid tokens: {(visual_valid_mask == 1).sum()}")
+        print(f"FINAL completion_mask: {completion_mask.sum(dim=1)}, FINAL updated tokens: {(completion_mask == 1).sum()}, UPDATE RATIO = {(completion_mask == 1).sum()/(visual_valid_mask == 1).sum()}")
 
         with torch.inference_mode():
             try:
@@ -725,9 +725,6 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
         per_token_loss = -(per_token_loss - self.beta * per_token_kl)
-        # per_token_loss = -per_token_loss
-        if final_weights is not None:
-            per_token_loss = per_token_loss * final_weights
 
         sequence_losses = (per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)
         loss = sequence_losses.mean()

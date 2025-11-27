@@ -1,24 +1,20 @@
-cd src/r1-v
-
 export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model during RL
 export LOG_PATH="./debug_log_2b.txt"
-PORTS=$ARNOLD_WORKER_0_PORT 
-PORT=(${PORTS//,/ }) 
 
 # For resume training:  --resume_from_checkpoint Model_Path \
 # Set temporal to choose between T-GRPO and GRPO, and len_control to enable or disable the length control reward.
 
 # Qwen/Qwen2.5-VL-7B-Instruct
 
-torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
-    --nnodes="$ARNOLD_WORKER_NUM" \
-    --node_rank="$ARNOLD_ID" \
-    --master_addr="$ARNOLD_WORKER_0_HOST" \
-    --master_port="$PORT" \
+torchrun --nproc_per_node="8" \
+    --nnodes="1" \
+    --node_rank="0" \
+    --master_addr="127.0.0.1" \
+    --master_port="12349" \
     src/open_r1/grpo.py \
-    --output_dir "/mnt/bn/tns-live-mllm/private/wangzy/Video-R1/baseline28_0619" \
+    --output_dir "./debug" \
     --model_name_or_path 'Video-R1/Qwen2.5-VL-7B-COT-SFT' \
-    --dataset_name "./Video-R1-data/Video-R1-260k.json" \
+    --dataset_name "./Video-R1-data/Video-R1-Holmes-16k.json" \
     --deepspeed local_scripts/zero3.json \
     --max_prompt_length 16384 \
     --max_completion_length 768 \
@@ -35,9 +31,10 @@ torchrun --nproc_per_node="$ARNOLD_WORKER_GPU" \
     --attn_implementation flash_attention_2 \
     --max_pixels 401408 \
     --num_train_epochs 1 \
-    --run_name Video-R1-28-Baseline \
+    --run_name GRPO-Baseline \
     --save_steps 100 \
     --beta 0.04 \
     --max_grad_norm 5 \
     --save_only_model false \
-    --num_generations 8  # number of outputs G in grpo, reduce it would lead to faster training and smaller memory cost but higher variance  
+    --video_ktr false \
+    --num_generations 8
