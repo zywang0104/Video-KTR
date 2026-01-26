@@ -3,15 +3,19 @@
 > **Video-KTR** is a reinforcement learning framework designed for complex video reasoning.\
 > It identifies and amplifies *critical visual--temporal tokens* via selective gradient reinforcement, significantly improving video reasoning performance.
 
-[📖 Paper(WIP)]
-[[🤗 Video-KTR-7B-model](https://huggingface.co/Video-KTR/Video-KTR-7B)]
+<p align="center">
+<a href="https://openreview.net/pdf?id=p0sDIEsYG3">[📖 Paper]</a> &nbsp; <a href="https://huggingface.co/Video-KTR/Video-KTR-7B">[🤗 Video-KTR-7B-model]</a>
+</p>
+<p align="center">
+<strong>[2026.01.26]</strong>      🎉Our work is accepted by ICLR 2026.
+</p>
+
 
 ## 🌟 Highlights
 
 -   🚀 **State-of-the-art performance** on multiple video reasoning benchmarks (Video-Holmes, VideoMMMU, MMVU, VideoMME)
 -   🎯 **Key Token Reinforcement (KTR)**: amplifies signal on high-entropy / visual-aware / temporal-aware tokens
 -   🔍 **Better temporal and causal reasoning** demonstrated by detailed case studies
--   🧩 Compatible with **Video-R1**, **Qwen2.5-VL**, and **Video-R1-SFT** pipelines
 
 <div align="center">
   <img src="images/method.png" width="90%">
