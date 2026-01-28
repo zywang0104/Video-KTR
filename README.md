@@ -4,7 +4,7 @@
 > It identifies and amplifies *critical visual--temporal tokens* via selective gradient reinforcement, significantly improving video reasoning performance.
 
 <p align="center">
-<a href="https://openreview.net/pdf?id=p0sDIEsYG3">[📖 Paper]</a> &nbsp; <a href="https://huggingface.co/Video-KTR/Video-KTR-7B">[🤗 Video-KTR-7B-model]</a>
+<a href="https://arxiv.org/abs/2601.19686">[📖 Paper]</a> &nbsp; <a href="https://huggingface.co/Video-KTR/Video-KTR-7B">[🤗 Video-KTR-7B-model]</a>
 </p>
 <p align="center">
 <strong>[2026.01.26]</strong>      🎉Our work is accepted by ICLR 2026.
@@ -137,5 +137,15 @@ python ./src/inference_example.py
 ------------------------------------------------------------------------
 
 ## 📑 Citation
-
-WIP
+If you find our work helpful for your research, please consider citing our work.
+```bash
+@misc{wang2026videoktrreinforcingvideoreasoning,
+      title={Video-KTR: Reinforcing Video Reasoning via Key Token Attribution}, 
+      author={Ziyue Wang and Sheng Jin and Zhongrong Zuo and Jiawei Wu and Han Qiu and Qi She and Hao Zhang and Xudong Jiang},
+      year={2026},
+      eprint={2601.19686},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2601.19686}, 
+}
+```
